@@ -110,7 +110,6 @@ func serveHTML(w http.ResponseWriter, r *http.Request) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Ollama Go Web UI</title>
-    <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
@@ -636,7 +635,7 @@ func serveHTML(w http.ResponseWriter, r *http.Request) {
             });
         });
 
-        // Export chat functionality
+        // Export chat functionality - FIX APPLIED HERE
         exportChatButton.addEventListener('click', () => {
             if (chatMessages.length === 0) {
                 showAlert('No chat history to export.');
@@ -645,17 +644,19 @@ func serveHTML(w http.ResponseWriter, r *http.Request) {
 
             const systemPrompt = systemPromptInput.value.trim();
             let exportContent = '# Ollama Chat Export\n\n';
-            exportContent += '**Model:** ${modelSelect.value}\n';
-            exportContent += '**Date:** ${new Date().toLocaleString()}\n\n';
+            // Corrected template literal usage
+            exportContent += '**Model:** ' + modelSelect.value + '\n';
+            exportContent += '**Date:** ' + new Date().toLocaleString() + '\n\n';
             
             if (systemPrompt) {
-                exportContent += '**System Prompt:** ${systemPrompt}\n\n';
+                exportContent += '**System Prompt:** ' + systemPrompt + '\n\n';
             }
             
             exportContent += '---\n\n';
 
             chatMessages.forEach(msg => {
-                exportContent += '### ${msg.role === 'user' ? 'User' : 'Assistant'}\n\n';
+                // Corrected template literal usage
+                exportContent += '### ' + (msg.role === 'user' ? 'User' : 'Assistant') + '\n\n';
                 exportContent += msg.content + '\n\n';
             });
 
@@ -663,7 +664,8 @@ func serveHTML(w http.ResponseWriter, r *http.Request) {
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = 'ollama-chat-${new Date().getTime()}.md';
+            // Corrected template literal usage
+            a.download = 'ollama-chat-' + new Date().getTime() + '.md';
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
@@ -854,7 +856,8 @@ func serveHTML(w http.ResponseWriter, r *http.Request) {
         // Stop generation button
         stopGenerateButton.addEventListener('click', () => {
             if (currentReader) {
-                currentReader.cancel();
+                // Use catch to handle potential errors if stream is already closed
+                currentReader.cancel().catch(e => console.log("Stream already cancelled or error during cancel:", e));
                 currentReader = null;
                 loadingIndicator.style.display = 'none';
                 generateButton.disabled = false;
@@ -867,7 +870,7 @@ func serveHTML(w http.ResponseWriter, r *http.Request) {
 
         stopChatButton.addEventListener('click', () => {
             if (currentReader) {
-                currentReader.cancel();
+                currentReader.cancel().catch(e => console.log("Stream already cancelled or error during cancel:", e));
                 currentReader = null;
                 loadingIndicator.style.display = 'none';
                 sendChatButton.disabled = false;
@@ -931,22 +934,16 @@ func serveHTML(w http.ResponseWriter, r *http.Request) {
                                 const jsonChunk = JSON.parse(data);
                                 if (jsonChunk.response) {
                                     fullResponse += jsonChunk.response;
+                                    // Display the content in chunks without full markdown re-render
+                                    responseOutput.textContent = fullResponse;
+                                    responseOutput.scrollTop = responseOutput.scrollHeight;
                                 }
                             } catch (e) { console.warn('Could not parse JSON chunk:', data, e); }
                         }
                     }
                 }
-                if (buffer.startsWith('data: ')) {
-                    const data = buffer.substring(6);
-                    if (data !== '[DONE]') {
-                        try {
-                            const jsonChunk = JSON.parse(data);
-                            if (jsonChunk.response) { fullResponse += jsonChunk.response; }
-                        } catch (e) { console.warn('Could not parse final JSON chunk:', data, e); }
-                    }
-                }
-
-                // Render markdown
+                
+                // Final Markdown Render
                 responseOutput.innerHTML = marked.parse(fullResponse);
 
             } catch (error) {
@@ -976,6 +973,7 @@ func serveHTML(w http.ResponseWriter, r *http.Request) {
         // Enter to send in chat
         chatInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault(); // Prevent newline in textarea
                 sendChatButton.click();
             }
         });
@@ -1034,6 +1032,11 @@ func serveHTML(w http.ResponseWriter, r *http.Request) {
                 const assistantMessageDiv = document.createElement('div');
                 assistantMessageDiv.classList.add('chat-message', 'assistant');
                 
+                // Add a dedicated content container
+                const contentContainer = document.createElement('div');
+                contentContainer.classList.add('message-content');
+                assistantMessageDiv.appendChild(contentContainer);
+
                 // Add copy button
                 const copyBtn = document.createElement('button');
                 copyBtn.classList.add('copy-button', 'bg-gray-600', 'hover:bg-gray-700', 'text-white', 'rounded');
@@ -1063,6 +1066,10 @@ func serveHTML(w http.ResponseWriter, r *http.Request) {
                                 const jsonChunk = JSON.parse(data);
                                 if (jsonChunk.message && jsonChunk.message.content) {
                                     assistantResponseContent += jsonChunk.message.content;
+                                    
+                                    // Display the streamed content (plain text for streaming)
+                                    contentContainer.textContent = assistantResponseContent;
+
                                     if (showThinkingCheckbox.checked) {
                                         thinkingOutput.textContent += jsonChunk.message.content;
                                         thinkingOutput.scrollTop = thinkingOutput.scrollHeight;
@@ -1071,11 +1078,12 @@ func serveHTML(w http.ResponseWriter, r *http.Request) {
                             } catch (e) { console.warn('Could not parse JSON chunk:', data, e); }
                         }
                     }
+                    chatHistoryOutput.scrollTop = chatHistoryOutput.scrollHeight;
                 }
                 
-                // Render markdown for assistant message
-                assistantMessageDiv.innerHTML = marked.parse(assistantResponseContent);
-                assistantMessageDiv.appendChild(copyBtn); // Re-add copy button after markdown render
+                // Final Markdown Render for assistant message
+                contentContainer.innerHTML = marked.parse(assistantResponseContent);
+                
                 chatHistoryOutput.scrollTop = chatHistoryOutput.scrollHeight;
 
                 if (assistantResponseContent) {
@@ -1122,10 +1130,15 @@ func serveHTML(w http.ResponseWriter, r *http.Request) {
             const messageDiv = document.createElement('div');
             messageDiv.classList.add('chat-message', role);
             
-            if (role === 'user') {
-                messageDiv.textContent = content;
+            // Add content container for markdown
+            const contentContainer = document.createElement('div');
+            contentContainer.classList.add('message-content');
+            messageDiv.appendChild(contentContainer);
+            
+            if (role === 'user' || role === 'error') {
+                contentContainer.textContent = content;
             } else {
-                messageDiv.innerHTML = marked.parse(content);
+                contentContainer.innerHTML = marked.parse(content);
             }
             
             // Add copy button
