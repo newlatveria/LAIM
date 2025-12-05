@@ -48,7 +48,6 @@ async function loadChats() {
     } catch (error) {
         console.error('Error loading chats:', error);
         state.chats = [];
-        showToast('Failed to load chats', 'error');
     }
 }
 
@@ -93,7 +92,7 @@ async function createNewChat() {
         loadChat(chat.id);
     } catch (error) {
         console.error('Error creating chat:', error);
-        showToast('Failed to create new chat', 'error');
+        alert('Failed to create new chat');
     }
 }
 
@@ -117,7 +116,6 @@ async function loadChat(chatId) {
         renderChatList();
     } catch (error) {
         console.error('Error loading chat:', error);
-        showToast('Failed to load chat history', 'error');
     }
 }
 
@@ -140,14 +138,12 @@ async function deleteChat(chatId) {
                     <p>Start a new conversation</p>
                 </div>
             `;
-            document.getElementById('chatTitle').textContent = 'New Chat';
         }
         
         renderChatList();
-        showToast('Chat deleted', 'success');
     } catch (error) {
         console.error('Error deleting chat:', error);
-        showToast('Failed to delete chat', 'error');
+        alert('Failed to delete chat');
     }
 }
 
@@ -174,8 +170,7 @@ function renderMessages(messages) {
                             ${escapeHtml(file.name)}
                         </div>`;
                     }
-                    // Fixed: Replaced corrupted characters with standard file emoji
-                    return `<div class="file-badge">📄 ${escapeHtml(file.name)}</div>`;
+                    return `<div class="file-badge">📎 ${escapeHtml(file.name)}</div>`;
                 }).join('')}
             </div>
         ` : '';
@@ -212,7 +207,7 @@ async function handleFileUpload(files) {
         renderFilePreview();
     } catch (error) {
         console.error('Error uploading files:', error);
-        showToast('Failed to upload files', 'error');
+        alert('Failed to upload files');
     }
 }
 
@@ -226,12 +221,11 @@ function renderFilePreview() {
     
     preview.innerHTML = state.uploadedFiles.map((file, index) => {
         const isImage = file.mime_type.startsWith('image/');
-        // Fixed: Replaced corrupted characters with standard file emoji and close HTML entity
         return `
             <div class="file-preview-item">
-                ${isImage ? `<img src="/api/files/${file.id}" alt="${escapeHtml(file.name)}">` : '📄'}
+                ${isImage ? `<img src="/api/files/${file.id}" alt="${escapeHtml(file.name)}">` : '📎'}
                 <span>${escapeHtml(file.name)}</span>
-                <button class="file-remove" onclick="removeFile(${index})" title="Remove file">&times;</button>
+                <button class="file-remove" onclick="removeFile(${index})">×</button>
             </div>
         `;
     }).join('');
@@ -247,7 +241,7 @@ async function sendMessage() {
     const input = document.getElementById('userInput');
     const message = input.value.trim();
     
-    if (!message && state.uploadedFiles.length === 0) return;
+    if (!message) return;
     
     // Create chat if none exists
     if (!state.currentChatId) {
@@ -261,7 +255,7 @@ async function sendMessage() {
     try {
         // Save user message
         const fileIds = state.uploadedFiles.map(f => f.id);
-        await fetch('/api/messages', {
+        const msgResponse = await fetch('/api/messages', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -287,24 +281,16 @@ async function sendMessage() {
             num_predict: parseInt(document.getElementById('maxTokens').value)
         };
         
-        // Prepare API request
-        const apiBody = {
-            chat_id: state.currentChatId,
-            model: state.currentModel,
-            message: message,
-            file_ids: fileIds,
-            options: options
-        };
-
-        // Inject system prompt if present (by prepending to context/message logic usually, 
-        // but here we might pass it as a separate message or options depending on Ollama API version.
-        // For simplicity with this backend, we assume Ollama handles system prompt via modelfile or context,
-        // but we can prepend it to the message if it's the first message, or rely on backend to handle it.)
-        
         const response = await fetch('/api/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(apiBody)
+            body: JSON.stringify({
+                chat_id: state.currentChatId,
+                model: state.currentModel,
+                message: message,
+                file_ids: fileIds,
+                options: options
+            })
         });
         
         // Stream response
@@ -318,7 +304,7 @@ async function sendMessage() {
         messageDiv.className = 'message assistant';
         messageDiv.innerHTML = `
             <div class="message-role">assistant</div>
-            <div class="message-content"><span class="typing-indicator">...</span></div>
+            <div class="message-content"></div>
         `;
         container.appendChild(messageDiv);
         const contentDiv = messageDiv.querySelector('.message-content');
@@ -335,7 +321,6 @@ async function sendMessage() {
                     try {
                         const data = JSON.parse(line);
                         if (data.message && data.message.content) {
-                            if (assistantMessage === '') contentDiv.innerHTML = ''; // Clear typing indicator
                             assistantMessage += data.message.content;
                             contentDiv.innerHTML = formatContent(assistantMessage);
                             container.scrollTop = container.scrollHeight;
@@ -364,9 +349,7 @@ async function sendMessage() {
         
     } catch (error) {
         console.error('Error sending message:', error);
-        showToast('Failed to send message', 'error');
-        sendBtn.disabled = false;
-        sendBtn.textContent = 'Send';
+        alert('Failed to send message');
     } finally {
         sendBtn.disabled = false;
         sendBtn.textContent = 'Send';
@@ -405,7 +388,6 @@ async function loadModels() {
         renderInstalledModels();
     } catch (error) {
         console.error('Error loading models:', error);
-        showToast('Failed to load models list', 'error');
     }
 }
 
@@ -432,7 +414,7 @@ function renderInstalledModels() {
 async function pullModel() {
     const modelName = document.getElementById('modelName').value.trim();
     if (!modelName) {
-        showToast('Please enter a model name', 'warning');
+        alert('Please enter a model name');
         return;
     }
     
@@ -464,12 +446,7 @@ async function pullModel() {
                 if (line.trim()) {
                     try {
                         const data = JSON.parse(line);
-                        // Basic formatting for status updates
-                        let statusLine = data.status;
-                        if(data.completed && data.total) {
-                           statusLine += ` (${Math.round(data.completed/data.total*100)}%)`;
-                        }
-                        progress.innerHTML += `\n${statusLine}`;
+                        progress.innerHTML += `\n${data.status || JSON.stringify(data)}`;
                         progress.scrollTop = progress.scrollHeight;
                     } catch (e) {
                         // Skip invalid JSON
@@ -479,13 +456,11 @@ async function pullModel() {
         }
         
         progress.innerHTML += '\n\nPull completed!';
-        showToast(`Model ${modelName} installed successfully`, 'success');
         await loadModels();
         
     } catch (error) {
         console.error('Error pulling model:', error);
         progress.innerHTML += `\n\nError: ${error.message}`;
-        showToast('Failed to pull model', 'error');
     } finally {
         pullBtn.disabled = false;
         pullBtn.textContent = 'Pull Model';
@@ -497,7 +472,7 @@ async function deleteModel() {
     const modelName = select.value;
     
     if (!modelName) {
-        showToast('Please select a model to delete', 'warning');
+        alert('Please select a model to delete');
         return;
     }
     
@@ -513,10 +488,10 @@ async function deleteModel() {
         });
         
         await loadModels();
-        showToast('Model deleted successfully', 'success');
+        alert('Model deleted successfully');
     } catch (error) {
         console.error('Error deleting model:', error);
-        showToast('Failed to delete model', 'error');
+        alert('Failed to delete model');
     }
 }
 
@@ -571,7 +546,6 @@ async function generateText() {
     } catch (error) {
         console.error('Error generating text:', error);
         output.textContent = 'Error: ' + error.message;
-        showToast('Generation failed', 'error');
     } finally {
         generateBtn.disabled = false;
         generateBtn.textContent = 'Generate Response';
@@ -628,10 +602,7 @@ function setupEventListeners() {
     document.getElementById('generateBtn').addEventListener('click', generateText);
     
     // Model management
-    document.getElementById('refreshModels').addEventListener('click', async () => {
-        await loadModels();
-        showToast('Models list refreshed', 'info');
-    });
+    document.getElementById('refreshModels').addEventListener('click', loadModels);
     document.getElementById('pullBtn').addEventListener('click', pullModel);
     document.getElementById('deleteBtn').addEventListener('click', deleteModel);
     
@@ -641,36 +612,21 @@ function setupEventListeners() {
         document.getElementById('titleModal').classList.add('active');
         const chat = state.chats.find(c => c.id === state.currentChatId);
         document.getElementById('titleInput').value = chat.title;
-        document.getElementById('titleInput').focus();
     });
     
     document.getElementById('saveTitleBtn').addEventListener('click', async () => {
         const newTitle = document.getElementById('titleInput').value.trim();
         if (!newTitle || !state.currentChatId) return;
         
-        try {
-            // Optimistic update
-            const chat = state.chats.find(c => c.id === state.currentChatId);
-            if (chat) {
-                chat.title = newTitle;
-                document.getElementById('chatTitle').textContent = newTitle;
-                renderChatList();
-            }
-
-            await fetch(`/api/chats/${state.currentChatId}`, {
-                method: 'PUT',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'X-Session-ID': state.sessionId
-                },
-                body: JSON.stringify({ title: newTitle })
-            });
-
-            document.getElementById('titleModal').classList.remove('active');
-            showToast('Title updated', 'success');
-        } catch (err) {
-            showToast('Failed to update title', 'error');
+        // Update in database (you'd need to add an endpoint for this)
+        const chat = state.chats.find(c => c.id === state.currentChatId);
+        if (chat) {
+            chat.title = newTitle;
+            document.getElementById('chatTitle').textContent = newTitle;
+            renderChatList();
         }
+        
+        document.getElementById('titleModal').classList.remove('active');
     });
     
     document.getElementById('cancelTitleBtn').addEventListener('click', () => {
@@ -702,34 +658,7 @@ function updateParameterValues() {
 }
 
 // Utility Functions
-
-// Added: Missing Toast Logic for CSS compatibility
-function showToast(message, type = 'info') {
-    // Create toast element
-    const toast = document.createElement('div');
-    toast.className = `toast toast-${type}`;
-    toast.textContent = message;
-    
-    document.body.appendChild(toast);
-    
-    // Trigger reflow
-    toast.offsetHeight;
-    
-    // Show
-    toast.classList.add('show');
-    
-    // Remove after 3 seconds
-    setTimeout(() => {
-        toast.classList.remove('show');
-        setTimeout(() => {
-            document.body.removeChild(toast);
-        }, 300); // Match transition time
-    }, 3000);
-}
-
 function formatContent(content) {
-    if (!content) return '';
-    
     // Basic markdown rendering
     content = escapeHtml(content);
     
@@ -754,7 +683,6 @@ function formatContent(content) {
 }
 
 function escapeHtml(text) {
-    if (!text) return '';
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;

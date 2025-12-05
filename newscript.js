@@ -5,7 +5,8 @@ let state = {
     currentModel: '',
     chats: [],
     uploadedFiles: [],
-    models: []
+    models: [],
+    isGenerating: false
 };
 
 // Initialize app
@@ -15,22 +16,32 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadChats();
     setupEventListeners();
     updateParameterValues();
+    loadDraft();
+    setupKeyboardShortcuts();
 });
 
 // Session Management
 async function initSession() {
-    // Check for existing session
     let sessionId = localStorage.getItem('laim_session_id');
     
     if (!sessionId) {
-        // Create new session
-        const response = await fetch('/api/session', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
-        });
-        const data = await response.json();
-        sessionId = data.session_id;
-        localStorage.setItem('laim_session_id', sessionId);
+        try {
+            const response = await fetch('/api/session', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            const data = await response.json();
+            sessionId = data.session_id;
+            localStorage.setItem('laim_session_id', sessionId);
+        } catch (err) {
+        console.error('Failed to copy:', err);
+        showToast('Failed to copy', 'error');
+    }
+}or) {
+            console.error('Error creating session:', error);
+            showToast('Failed to create session', 'error');
+            return;
+        }
     }
     
     state.sessionId = sessionId;
@@ -39,16 +50,24 @@ async function initSession() {
 
 // Chat Management
 async function loadChats() {
+    showLoadingState('chatList');
+    
     try {
         const response = await fetch('/api/chats', {
             headers: { 'X-Session-ID': state.sessionId }
         });
+        
+        if (!response.ok) {
+            throw new Error('Failed to load chats');
+        }
+        
         state.chats = await response.json() || [];
         renderChatList();
     } catch (error) {
         console.error('Error loading chats:', error);
-        state.chats = [];
         showToast('Failed to load chats', 'error');
+        state.chats = [];
+        renderChatList();
     }
 }
 
@@ -56,7 +75,12 @@ function renderChatList() {
     const chatList = document.getElementById('chatList');
     
     if (state.chats.length === 0) {
-        chatList.innerHTML = '<div style="text-align: center; color: var(--text-secondary); padding: 2rem;">No chats yet. Start a new one!</div>';
+        chatList.innerHTML = `
+            <div style="text-align: center; color: var(--text-secondary); padding: 2rem;">
+                <p>No chats yet</p>
+                <p style="font-size: 0.875rem; margin-top: 0.5rem;">Start a new conversation!</p>
+            </div>
+        `;
         return;
     }
     
@@ -65,7 +89,7 @@ function renderChatList() {
              onclick="loadChat('${chat.id}')">
             <div class="chat-item-title">${escapeHtml(chat.title)}</div>
             <div class="chat-item-meta">
-                <span>${chat.model}</span>
+                <span>${escapeHtml(chat.model)}</span>
                 <span>${formatDate(chat.updated_at)}</span>
             </div>
             <button class="chat-item-delete" onclick="event.stopPropagation(); deleteChat('${chat.id}')">Delete</button>
@@ -87,10 +111,15 @@ async function createNewChat() {
             body: JSON.stringify({ title, model })
         });
         
+        if (!response.ok) {
+            throw new Error('Failed to create chat');
+        }
+        
         const chat = await response.json();
         state.chats.unshift(chat);
         renderChatList();
         loadChat(chat.id);
+        showToast('New chat created', 'success');
     } catch (error) {
         console.error('Error creating chat:', error);
         showToast('Failed to create new chat', 'error');
@@ -99,11 +128,17 @@ async function createNewChat() {
 
 async function loadChat(chatId) {
     state.currentChatId = chatId;
+    showLoadingState('messagesContainer');
     
     try {
         const response = await fetch(`/api/chats/${chatId}`, {
             headers: { 'X-Session-ID': state.sessionId }
         });
+        
+        if (!response.ok) {
+            throw new Error('Failed to load chat');
+        }
+        
         const messages = await response.json();
         
         const chat = state.chats.find(c => c.id === chatId);
@@ -115,9 +150,10 @@ async function loadChat(chatId) {
         
         renderMessages(messages);
         renderChatList();
+        loadDraft();
     } catch (error) {
         console.error('Error loading chat:', error);
-        showToast('Failed to load chat history', 'error');
+        showToast('Failed to load chat', 'error');
     }
 }
 
@@ -125,10 +161,14 @@ async function deleteChat(chatId) {
     if (!confirm('Are you sure you want to delete this chat?')) return;
     
     try {
-        await fetch(`/api/chats/${chatId}`, {
+        const response = await fetch(`/api/chats/${chatId}`, {
             method: 'DELETE',
             headers: { 'X-Session-ID': state.sessionId }
         });
+        
+        if (!response.ok) {
+            throw new Error('Failed to delete chat');
+        }
         
         state.chats = state.chats.filter(c => c.id !== chatId);
         
@@ -140,7 +180,7 @@ async function deleteChat(chatId) {
                     <p>Start a new conversation</p>
                 </div>
             `;
-            document.getElementById('chatTitle').textContent = 'New Chat';
+            clearDraft();
         }
         
         renderChatList();
@@ -148,6 +188,35 @@ async function deleteChat(chatId) {
     } catch (error) {
         console.error('Error deleting chat:', error);
         showToast('Failed to delete chat', 'error');
+    }
+}
+
+async function updateChatTitle(chatId, newTitle) {
+    try {
+        const response = await fetch(`/api/chats/${chatId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Session-ID': state.sessionId
+            },
+            body: JSON.stringify({ title: newTitle })
+        });
+        
+        if (!response.ok) {
+            throw new Error('Failed to update title');
+        }
+        
+        const chat = state.chats.find(c => c.id === chatId);
+        if (chat) {
+            chat.title = newTitle;
+            document.getElementById('chatTitle').textContent = newTitle;
+            renderChatList();
+        }
+        
+        showToast('Title updated', 'success');
+    } catch (error) {
+        console.error('Error updating title:', error);
+        showToast('Failed to update title', 'error');
     }
 }
 
@@ -170,12 +239,11 @@ function renderMessages(messages) {
                 ${msg.files.map(file => {
                     if (file.mime_type.startsWith('image/')) {
                         return `<div class="file-badge">
-                            <img src="/api/files/${file.id}" alt="${escapeHtml(file.name)}">
+                            <img src="/api/files/${file.id}" alt="${escapeHtml(file.name)}" loading="lazy">
                             ${escapeHtml(file.name)}
                         </div>`;
                     }
-                    // Fixed: Replaced corrupted characters with standard file emoji
-                    return `<div class="file-badge">📄 ${escapeHtml(file.name)}</div>`;
+                    return `<div class="file-badge">📎 ${escapeHtml(file.name)}</div>`;
                 }).join('')}
             </div>
         ` : '';
@@ -185,7 +253,10 @@ function renderMessages(messages) {
                 <div class="message-role">${msg.role}</div>
                 <div class="message-content">${formatContent(msg.content)}</div>
                 ${filesHtml}
-                <div class="message-time">${formatDate(msg.created_at)}</div>
+                <div class="message-actions">
+                    <button class="btn-icon-small" onclick="copyToClipboard(\`${escapeHtml(msg.content).replace(/`/g, '\\`')}\`)" title="Copy">📋</button>
+                    <span class="message-time">${formatDate(msg.created_at)}</span>
+                </div>
             </div>
         `;
     }).join('');
@@ -201,15 +272,23 @@ async function handleFileUpload(files) {
         formData.append('files', file);
     }
     
+    showToast('Uploading files...', 'info');
+    
     try {
         const response = await fetch('/api/upload', {
             method: 'POST',
+            headers: { 'X-Session-ID': state.sessionId },
             body: formData
         });
+        
+        if (!response.ok) {
+            throw new Error('Upload failed');
+        }
         
         const uploadedFiles = await response.json();
         state.uploadedFiles.push(...uploadedFiles);
         renderFilePreview();
+        showToast(`${uploadedFiles.length} file(s) uploaded`, 'success');
     } catch (error) {
         console.error('Error uploading files:', error);
         showToast('Failed to upload files', 'error');
@@ -226,12 +305,11 @@ function renderFilePreview() {
     
     preview.innerHTML = state.uploadedFiles.map((file, index) => {
         const isImage = file.mime_type.startsWith('image/');
-        // Fixed: Replaced corrupted characters with standard file emoji and close HTML entity
         return `
             <div class="file-preview-item">
-                ${isImage ? `<img src="/api/files/${file.id}" alt="${escapeHtml(file.name)}">` : '📄'}
+                ${isImage ? `<img src="/api/files/${file.id}" alt="${escapeHtml(file.name)}" loading="lazy">` : '📎'}
                 <span>${escapeHtml(file.name)}</span>
-                <button class="file-remove" onclick="removeFile(${index})" title="Remove file">&times;</button>
+                <button class="file-remove" onclick="removeFile(${index})">×</button>
             </div>
         `;
     }).join('');
@@ -247,23 +325,25 @@ async function sendMessage() {
     const input = document.getElementById('userInput');
     const message = input.value.trim();
     
-    if (!message && state.uploadedFiles.length === 0) return;
+    if (!message || state.isGenerating) return;
     
-    // Create chat if none exists
     if (!state.currentChatId) {
         await createNewChat();
     }
     
     const sendBtn = document.getElementById('sendBtn');
+    state.isGenerating = true;
     sendBtn.disabled = true;
     sendBtn.textContent = 'Sending...';
     
     try {
-        // Save user message
         const fileIds = state.uploadedFiles.map(f => f.id);
-        await fetch('/api/messages', {
+        const msgResponse = await fetch('/api/messages', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Session-ID': state.sessionId
+            },
             body: JSON.stringify({
                 chat_id: state.currentChatId,
                 role: 'user',
@@ -272,53 +352,52 @@ async function sendMessage() {
             })
         });
         
+        if (!msgResponse.ok) {
+            throw new Error('Failed to save message');
+        }
+        
         input.value = '';
         state.uploadedFiles = [];
         renderFilePreview();
+        clearDraft();
         
-        // Reload messages to show user message
         await loadChat(state.currentChatId);
         
-        // Get AI response
-        const systemPrompt = document.getElementById('systemPrompt').value.trim();
         const options = {
             temperature: parseFloat(document.getElementById('temperature').value),
             top_p: parseFloat(document.getElementById('topP').value),
             num_predict: parseInt(document.getElementById('maxTokens').value)
         };
         
-        // Prepare API request
-        const apiBody = {
-            chat_id: state.currentChatId,
-            model: state.currentModel,
-            message: message,
-            file_ids: fileIds,
-            options: options
-        };
-
-        // Inject system prompt if present (by prepending to context/message logic usually, 
-        // but here we might pass it as a separate message or options depending on Ollama API version.
-        // For simplicity with this backend, we assume Ollama handles system prompt via modelfile or context,
-        // but we can prepend it to the message if it's the first message, or rely on backend to handle it.)
-        
         const response = await fetch('/api/chat', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(apiBody)
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Session-ID': state.sessionId
+            },
+            body: JSON.stringify({
+                chat_id: state.currentChatId,
+                model: state.currentModel,
+                message: message,
+                file_ids: fileIds,
+                options: options
+            })
         });
         
-        // Stream response
+        if (!response.ok) {
+            throw new Error('Failed to get AI response');
+        }
+        
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let assistantMessage = '';
         
-        // Add assistant message placeholder
         const container = document.getElementById('messagesContainer');
         const messageDiv = document.createElement('div');
         messageDiv.className = 'message assistant';
         messageDiv.innerHTML = `
             <div class="message-role">assistant</div>
-            <div class="message-content"><span class="typing-indicator">...</span></div>
+            <div class="message-content"><span class="typing-indicator">●●●</span></div>
         `;
         container.appendChild(messageDiv);
         const contentDiv = messageDiv.querySelector('.message-content');
@@ -335,7 +414,6 @@ async function sendMessage() {
                     try {
                         const data = JSON.parse(line);
                         if (data.message && data.message.content) {
-                            if (assistantMessage === '') contentDiv.innerHTML = ''; // Clear typing indicator
                             assistantMessage += data.message.content;
                             contentDiv.innerHTML = formatContent(assistantMessage);
                             container.scrollTop = container.scrollHeight;
@@ -347,10 +425,12 @@ async function sendMessage() {
             }
         }
         
-        // Save assistant message
         await fetch('/api/messages', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Session-ID': state.sessionId
+            },
             body: JSON.stringify({
                 chat_id: state.currentChatId,
                 role: 'assistant',
@@ -359,15 +439,13 @@ async function sendMessage() {
             })
         });
         
-        // Reload chat list to update timestamp
         await loadChats();
         
     } catch (error) {
         console.error('Error sending message:', error);
         showToast('Failed to send message', 'error');
-        sendBtn.disabled = false;
-        sendBtn.textContent = 'Send';
     } finally {
+        state.isGenerating = false;
         sendBtn.disabled = false;
         sendBtn.textContent = 'Send';
     }
@@ -377,6 +455,10 @@ async function sendMessage() {
 async function loadModels() {
     try {
         const response = await fetch('/api/models');
+        if (!response.ok) {
+            throw new Error('Failed to load models');
+        }
+        
         const data = await response.json();
         state.models = data.models || [];
         
@@ -385,6 +467,7 @@ async function loadModels() {
         
         if (state.models.length === 0) {
             select.innerHTML = '<option value="">No models installed</option>';
+            showToast('No models installed. Pull a model to get started.', 'warning');
             return;
         }
         
@@ -405,7 +488,7 @@ async function loadModels() {
         renderInstalledModels();
     } catch (error) {
         console.error('Error loading models:', error);
-        showToast('Failed to load models list', 'error');
+        showToast('Failed to load models', 'error');
     }
 }
 
@@ -420,7 +503,7 @@ function renderInstalledModels() {
     container.innerHTML = state.models.map(model => `
         <div class="model-item">
             <div>
-                <strong>${model.name}</strong>
+                <strong>${escapeHtml(model.name)}</strong>
                 <div style="font-size: 0.875rem; color: var(--text-secondary);">
                     Size: ${formatBytes(model.size)}
                 </div>
@@ -446,9 +529,16 @@ async function pullModel() {
     try {
         const response = await fetch('/api/pull', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Session-ID': state.sessionId
+            },
             body: JSON.stringify({ name: modelName, stream: true })
         });
+        
+        if (!response.ok) {
+            throw new Error('Pull failed');
+        }
         
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
@@ -464,12 +554,7 @@ async function pullModel() {
                 if (line.trim()) {
                     try {
                         const data = JSON.parse(line);
-                        // Basic formatting for status updates
-                        let statusLine = data.status;
-                        if(data.completed && data.total) {
-                           statusLine += ` (${Math.round(data.completed/data.total*100)}%)`;
-                        }
-                        progress.innerHTML += `\n${statusLine}`;
+                        progress.innerHTML += `\n${data.status || JSON.stringify(data)}`;
                         progress.scrollTop = progress.scrollHeight;
                     } catch (e) {
                         // Skip invalid JSON
@@ -479,8 +564,8 @@ async function pullModel() {
         }
         
         progress.innerHTML += '\n\nPull completed!';
-        showToast(`Model ${modelName} installed successfully`, 'success');
         await loadModels();
+        showToast('Model pulled successfully', 'success');
         
     } catch (error) {
         console.error('Error pulling model:', error);
@@ -506,11 +591,18 @@ async function deleteModel() {
     }
     
     try {
-        await fetch('/api/delete', {
+        const response = await fetch('/api/delete', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Session-ID': state.sessionId
+            },
             body: JSON.stringify({ name: modelName })
         });
+        
+        if (!response.ok) {
+            throw new Error('Delete failed');
+        }
         
         await loadModels();
         showToast('Model deleted successfully', 'success');
@@ -528,20 +620,28 @@ async function generateText() {
     const output = document.getElementById('generateOutput');
     const generateBtn = document.getElementById('generateBtn');
     
+    state.isGenerating = true;
     generateBtn.disabled = true;
     generateBtn.textContent = 'Generating...';
-    output.textContent = '';
+    output.innerHTML = '<span class="typing-indicator">●●●</span>';
     
     try {
         const response = await fetch('/api/generate', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Session-ID': state.sessionId
+            },
             body: JSON.stringify({
                 model: state.currentModel,
                 prompt: prompt,
                 stream: true
             })
         });
+        
+        if (!response.ok) {
+            throw new Error('Generation failed');
+        }
         
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
@@ -573,17 +673,61 @@ async function generateText() {
         output.textContent = 'Error: ' + error.message;
         showToast('Generation failed', 'error');
     } finally {
+        state.isGenerating = false;
         generateBtn.disabled = false;
         generateBtn.textContent = 'Generate Response';
     }
 }
 
+// Draft Management
+function saveDraft() {
+    if (!state.currentChatId) return;
+    const draft = document.getElementById('userInput').value;
+    localStorage.setItem(`draft_${state.currentChatId}`, draft);
+}
+
+function loadDraft() {
+    if (!state.currentChatId) return;
+    const draft = localStorage.getItem(`draft_${state.currentChatId}`);
+    if (draft) {
+        document.getElementById('userInput').value = draft;
+    } else {
+        document.getElementById('userInput').value = '';
+    }
+}
+
+function clearDraft() {
+    if (!state.currentChatId) return;
+    localStorage.removeItem(`draft_${state.currentChatId}`);
+}
+
+// Keyboard Shortcuts
+function setupKeyboardShortcuts() {
+    document.addEventListener('keydown', (e) => {
+        // Ctrl/Cmd + K - Focus search (if implemented)
+        if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+            e.preventDefault();
+            // Future: Focus search
+        }
+        
+        // Ctrl/Cmd + N - New chat
+        if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
+            e.preventDefault();
+            createNewChat();
+        }
+        
+        // Escape - Clear input
+        if (e.key === 'Escape') {
+            document.getElementById('userInput').value = '';
+            clearDraft();
+        }
+    });
+}
+
 // Event Listeners
 function setupEventListeners() {
-    // New chat
     document.getElementById('newChatBtn').addEventListener('click', createNewChat);
     
-    // Send message
     document.getElementById('sendBtn').addEventListener('click', sendMessage);
     document.getElementById('userInput').addEventListener('keypress', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
@@ -592,7 +736,13 @@ function setupEventListeners() {
         }
     });
     
-    // File upload
+    // Auto-save draft with debounce
+    let draftTimeout;
+    document.getElementById('userInput').addEventListener('input', () => {
+        clearTimeout(draftTimeout);
+        draftTimeout = setTimeout(saveDraft, 500);
+    });
+    
     document.getElementById('attachBtn').addEventListener('click', () => {
         document.getElementById('fileInput').click();
     });
@@ -601,14 +751,13 @@ function setupEventListeners() {
         if (e.target.files.length > 0) {
             handleFileUpload(Array.from(e.target.files));
         }
+        e.target.value = ''; // Reset input
     });
     
-    // Model selection
     document.getElementById('modelSelect').addEventListener('change', (e) => {
         state.currentModel = e.target.value;
     });
     
-    // API type switching
     document.getElementById('apiType').addEventListener('change', (e) => {
         document.querySelectorAll('.interface-panel').forEach(panel => {
             panel.classList.remove('active');
@@ -624,60 +773,31 @@ function setupEventListeners() {
         }
     });
     
-    // Generate
     document.getElementById('generateBtn').addEventListener('click', generateText);
     
-    // Model management
-    document.getElementById('refreshModels').addEventListener('click', async () => {
-        await loadModels();
-        showToast('Models list refreshed', 'info');
-    });
+    document.getElementById('refreshModels').addEventListener('click', loadModels);
     document.getElementById('pullBtn').addEventListener('click', pullModel);
     document.getElementById('deleteBtn').addEventListener('click', deleteModel);
     
-    // Title editing
     document.getElementById('editTitleBtn').addEventListener('click', () => {
         if (!state.currentChatId) return;
         document.getElementById('titleModal').classList.add('active');
         const chat = state.chats.find(c => c.id === state.currentChatId);
         document.getElementById('titleInput').value = chat.title;
-        document.getElementById('titleInput').focus();
     });
     
     document.getElementById('saveTitleBtn').addEventListener('click', async () => {
         const newTitle = document.getElementById('titleInput').value.trim();
         if (!newTitle || !state.currentChatId) return;
         
-        try {
-            // Optimistic update
-            const chat = state.chats.find(c => c.id === state.currentChatId);
-            if (chat) {
-                chat.title = newTitle;
-                document.getElementById('chatTitle').textContent = newTitle;
-                renderChatList();
-            }
-
-            await fetch(`/api/chats/${state.currentChatId}`, {
-                method: 'PUT',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'X-Session-ID': state.sessionId
-                },
-                body: JSON.stringify({ title: newTitle })
-            });
-
-            document.getElementById('titleModal').classList.remove('active');
-            showToast('Title updated', 'success');
-        } catch (err) {
-            showToast('Failed to update title', 'error');
-        }
+        await updateChatTitle(state.currentChatId, newTitle);
+        document.getElementById('titleModal').classList.remove('active');
     });
     
     document.getElementById('cancelTitleBtn').addEventListener('click', () => {
         document.getElementById('titleModal').classList.remove('active');
     });
     
-    // Sidebar toggle
     document.getElementById('toggleSidebar').addEventListener('click', () => {
         document.getElementById('sidebar').classList.toggle('collapsed');
     });
@@ -686,9 +806,9 @@ function setupEventListeners() {
         document.getElementById('sidebar').classList.toggle('open');
     });
     
-    // Parameter sliders
     ['temperature', 'topP', 'maxTokens'].forEach(id => {
-        document.getElementById(id).addEventListener('input', updateParameterValues);
+        const element = document.getElementById(id);
+        element.addEventListener('input', debounce(updateParameterValues, 100));
     });
 }
 
@@ -701,36 +821,50 @@ function updateParameterValues() {
         document.getElementById('maxTokens').value;
 }
 
-// Utility Functions
-
-// Added: Missing Toast Logic for CSS compatibility
+// Toast Notifications
 function showToast(message, type = 'info') {
-    // Create toast element
+    // Remove existing toasts
+    const existingToast = document.querySelector('.toast');
+    if (existingToast) {
+        existingToast.remove();
+    }
+    
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
     toast.textContent = message;
-    
     document.body.appendChild(toast);
     
-    // Trigger reflow
-    toast.offsetHeight;
+    setTimeout(() => toast.classList.add('show'), 10);
     
-    // Show
-    toast.classList.add('show');
-    
-    // Remove after 3 seconds
     setTimeout(() => {
         toast.classList.remove('show');
-        setTimeout(() => {
-            document.body.removeChild(toast);
-        }, 300); // Match transition time
+        setTimeout(() => toast.remove(), 300);
     }, 3000);
 }
 
+// Loading States
+function showLoadingState(containerId) {
+    const container = document.getElementById(containerId);
+    if (containerId === 'chatList') {
+        container.innerHTML = `
+            <div class="loading-skeleton">
+                <div class="skeleton-item"></div>
+                <div class="skeleton-item"></div>
+                <div class="skeleton-item"></div>
+            </div>
+        `;
+    } else if (containerId === 'messagesContainer') {
+        container.innerHTML = `
+            <div class="loading-skeleton">
+                <div class="skeleton-message"></div>
+                <div class="skeleton-message"></div>
+            </div>
+        `;
+    }
+}
+
+// Utility Functions
 function formatContent(content) {
-    if (!content) return '';
-    
-    // Basic markdown rendering
     content = escapeHtml(content);
     
     // Code blocks
@@ -754,7 +888,6 @@ function formatContent(content) {
 }
 
 function escapeHtml(text) {
-    if (!text) return '';
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
@@ -780,3 +913,21 @@ function formatBytes(bytes) {
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
 }
+
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
+
+async function copyToClipboard(text) {
+    try {
+        await navigator.clipboard.writeText(text);
+        showToast('Copied to clipboard', 'success');
+    } catch (err
