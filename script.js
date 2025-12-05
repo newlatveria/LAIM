@@ -5,752 +5,627 @@ let state = {
     currentModel: '',
     chats: [],
     uploadedFiles: [],
-    models: []
+    models: [],
+    isStreaming: false,
 };
 
-// Initialize app
+// --- Initialization ---
+
 document.addEventListener('DOMContentLoaded', async () => {
+    // Add global toast container to the body for error display
+    const toastContainer = document.createElement('div');
+    toastContainer.id = 'toastContainer';
+    document.body.appendChild(toastContainer);
+    
     await initSession();
     await loadModels();
     await loadChats();
     setupEventListeners();
     updateParameterValues();
+    
+    // Default to 'chat' interface on load
+    document.getElementById('chatInterface').classList.add('active');
+    
+    // Select the default model after loading
+    const modelSelect = document.getElementById('modelSelect');
+    if (state.models.length > 0 && modelSelect.value === '') {
+        modelSelect.value = state.models[0];
+        state.currentModel = state.models[0];
+    }
 });
 
-// Session Management
+// --- Session Management ---
+
 async function initSession() {
-    // Check for existing session
     let sessionId = localStorage.getItem('laim_session_id');
     
     if (!sessionId) {
-        // Create new session
-        const response = await fetch('/api/session', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
-        });
-        const data = await response.json();
-        sessionId = data.session_id;
-        localStorage.setItem('laim_session_id', sessionId);
+        try {
+            const response = await fetch('/api/session', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            const data = await response.json();
+            sessionId = data.session_id;
+            localStorage.setItem('laim_session_id', sessionId);
+        } catch (error) {
+            showToast('Failed to initialize session with the server.', 'danger');
+            return;
+        }
     }
     
     state.sessionId = sessionId;
     document.getElementById('sessionInfo').textContent = `Session: ${sessionId.substring(0, 8)}...`;
 }
 
-// Chat Management
+// --- Chat Management ---
+
 async function loadChats() {
+    if (!state.sessionId) return;
     try {
         const response = await fetch('/api/chats', {
             headers: { 'X-Session-ID': state.sessionId }
         });
+        if (!response.ok) throw new Error('Failed to fetch chats.');
+        
         state.chats = await response.json() || [];
         renderChatList();
+        
+        // Load the first chat if no chat is currently active
+        if (!state.currentChatId && state.chats.length > 0) {
+            selectChat(state.chats[0].id);
+        } else if (state.currentChatId) {
+            // Re-select the current chat to load its messages
+            selectChat(state.currentChatId, false); // Pass false to skip message load if already loaded
+        } else {
+            // If no chats exist, set up the New Chat UI state
+            document.getElementById('chatTitle').textContent = "New Chat";
+            document.getElementById('messagesContainer').innerHTML = '';
+        }
     } catch (error) {
         console.error('Error loading chats:', error);
+        showToast('Error loading chat history.', 'danger');
         state.chats = [];
-        showToast('Failed to load chats', 'error');
     }
 }
 
 function renderChatList() {
     const chatList = document.getElementById('chatList');
+    chatList.innerHTML = '';
     
-    if (state.chats.length === 0) {
-        chatList.innerHTML = '<div style="text-align: center; color: var(--text-secondary); padding: 2rem;">No chats yet. Start a new one!</div>';
+    state.chats.forEach(chat => {
+        const chatItem = document.createElement('div');
+        chatItem.className = `chat-item ${chat.id === state.currentChatId ? 'active' : ''}`;
+        chatItem.dataset.chatId = chat.id;
+        
+        // Use a more compact date format for the sidebar
+        const lastActivity = formatDate(chat.updated_at);
+
+        chatItem.innerHTML = `
+            <div class="chat-title">${escapeHtml(chat.title)}</div>
+            <div class="chat-meta">
+                <span class="chat-model">${chat.model.split(':')[0]}</span> 
+                <span class="chat-date">${lastActivity}</span>
+            </div>
+        `;
+        
+        chatItem.addEventListener('click', () => selectChat(chat.id));
+        chatList.appendChild(chatItem);
+    });
+}
+
+function selectChat(chatID, loadMessagesFlag = true) {
+    if (state.isStreaming) {
+        showToast("Please wait for the current response to finish.", 'warning');
         return;
     }
     
-    chatList.innerHTML = state.chats.map(chat => `
-        <div class="chat-item ${chat.id === state.currentChatId ? 'active' : ''}" 
-             onclick="loadChat('${chat.id}')">
-            <div class="chat-item-title">${escapeHtml(chat.title)}</div>
-            <div class="chat-item-meta">
-                <span>${chat.model}</span>
-                <span>${formatDate(chat.updated_at)}</span>
-            </div>
-            <button class="chat-item-delete" onclick="event.stopPropagation(); deleteChat('${chat.id}')">Delete</button>
-        </div>
-    `).join('');
+    // Only load messages if the chat ID is actually changing or flag is true
+    const shouldLoadMessages = loadMessagesFlag && state.currentChatId !== chatID;
+    
+    state.currentChatId = chatID;
+    const selectedChat = state.chats.find(c => c.id === chatID);
+    
+    if (selectedChat) {
+        document.getElementById('chatTitle').textContent = escapeHtml(selectedChat.title);
+        document.getElementById('modelSelect').value = selectedChat.model;
+        state.currentModel = selectedChat.model;
+        if (shouldLoadMessages) {
+            loadMessages(chatID);
+        }
+    }
+    renderChatList(); // Update active class
+    
+    // Hide sidebar on mobile after selection
+    if (window.innerWidth <= 768) {
+        // Find and toggle the sidebar visibility if implemented
+    }
 }
 
-async function createNewChat() {
-    const model = state.currentModel || state.models[0]?.name || '';
-    const title = `Chat ${new Date().toLocaleString()}`;
+async function newChat() {
+    if (state.isStreaming) {
+        showToast("Please wait for the current response to finish.", 'warning');
+        return;
+    }
     
     try {
-        const response = await fetch('/api/chats', {
+        const modelSelect = document.getElementById('modelSelect');
+        const defaultModel = modelSelect.value || state.models[0] || '';
+        
+        const response = await fetch('/api/chat', {
             method: 'POST',
-            headers: {
+            headers: { 
                 'Content-Type': 'application/json',
                 'X-Session-ID': state.sessionId
             },
-            body: JSON.stringify({ title, model })
+            body: JSON.stringify({ model: defaultModel })
         });
         
-        const chat = await response.json();
-        state.chats.unshift(chat);
-        renderChatList();
-        loadChat(chat.id);
+        if (!response.ok) throw new Error('Failed to create new chat.');
+        
+        const newChat = await response.json();
+        state.chats.unshift(newChat); // Add to the start
+        selectChat(newChat.id);
+        
+        // Clear message area and title
+        document.getElementById('messagesContainer').innerHTML = '';
+        document.getElementById('chatTitle').textContent = escapeHtml(newChat.title);
+        
+        showToast('New chat started.', 'success');
     } catch (error) {
-        console.error('Error creating chat:', error);
-        showToast('Failed to create new chat', 'error');
+        console.error('Error creating new chat:', error);
+        showToast('Error starting new chat.', 'danger');
     }
 }
 
-async function loadChat(chatId) {
-    state.currentChatId = chatId;
+// --- Message Handlers ---
+
+async function loadMessages(chatID) {
+    const messagesContainer = document.getElementById('messagesContainer');
+    messagesContainer.innerHTML = '<div class="loading-spinner"></div>'; // Show loading spinner
     
     try {
-        const response = await fetch(`/api/chats/${chatId}`, {
+        const response = await fetch(`/api/messages/${chatID}`, {
             headers: { 'X-Session-ID': state.sessionId }
         });
+        
+        if (!response.ok) throw new Error('Failed to load messages.');
+        
         const messages = await response.json();
-        
-        const chat = state.chats.find(c => c.id === chatId);
-        if (chat) {
-            document.getElementById('chatTitle').textContent = chat.title;
-            state.currentModel = chat.model;
-            document.getElementById('modelSelect').value = chat.model;
-        }
-        
         renderMessages(messages);
-        renderChatList();
+        
     } catch (error) {
-        console.error('Error loading chat:', error);
-        showToast('Failed to load chat history', 'error');
-    }
-}
-
-async function deleteChat(chatId) {
-    if (!confirm('Are you sure you want to delete this chat?')) return;
-    
-    try {
-        await fetch(`/api/chats/${chatId}`, {
-            method: 'DELETE',
-            headers: { 'X-Session-ID': state.sessionId }
-        });
-        
-        state.chats = state.chats.filter(c => c.id !== chatId);
-        
-        if (state.currentChatId === chatId) {
-            state.currentChatId = null;
-            document.getElementById('messagesContainer').innerHTML = `
-                <div class="welcome-message">
-                    <h2>Chat Deleted</h2>
-                    <p>Start a new conversation</p>
-                </div>
-            `;
-            document.getElementById('chatTitle').textContent = 'New Chat';
-        }
-        
-        renderChatList();
-        showToast('Chat deleted', 'success');
-    } catch (error) {
-        console.error('Error deleting chat:', error);
-        showToast('Failed to delete chat', 'error');
+        console.error('Error loading messages:', error);
+        messagesContainer.innerHTML = '<div class="message system-message">Failed to load chat messages.</div>';
+        showToast('Error loading messages.', 'danger');
     }
 }
 
 function renderMessages(messages) {
-    const container = document.getElementById('messagesContainer');
+    const messagesContainer = document.getElementById('messagesContainer');
+    messagesContainer.innerHTML = ''; // Clear previous messages
     
-    if (messages.length === 0) {
-        container.innerHTML = `
-            <div class="welcome-message">
-                <h2>Start Chatting</h2>
-                <p>Send a message to begin</p>
-            </div>
-        `;
-        return;
-    }
+    messages.forEach(msg => {
+        appendMessage(msg.role, msg.content, msg.created_at, msg.id, false);
+    });
     
-    container.innerHTML = messages.map(msg => {
-        const filesHtml = msg.files && msg.files.length > 0 ? `
-            <div class="message-files">
-                ${msg.files.map(file => {
-                    if (file.mime_type.startsWith('image/')) {
-                        return `<div class="file-badge">
-                            <img src="/api/files/${file.id}" alt="${escapeHtml(file.name)}">
-                            ${escapeHtml(file.name)}
-                        </div>`;
-                    }
-                    // Fixed: Replaced corrupted characters with standard file emoji
-                    return `<div class="file-badge">📄 ${escapeHtml(file.name)}</div>`;
-                }).join('')}
-            </div>
-        ` : '';
-        
-        return `
-            <div class="message ${msg.role}">
-                <div class="message-role">${msg.role}</div>
-                <div class="message-content">${formatContent(msg.content)}</div>
-                ${filesHtml}
-                <div class="message-time">${formatDate(msg.created_at)}</div>
-            </div>
-        `;
-    }).join('');
-    
-    container.scrollTop = container.scrollHeight;
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
 }
 
-// File Upload
-async function handleFileUpload(files) {
-    const formData = new FormData();
+function appendMessage(role, content, timestamp, id, isNew = true) {
+    const messagesContainer = document.getElementById('messagesContainer');
+    const messageEl = document.createElement('div');
+    messageEl.className = `message ${role}-message`;
+    messageEl.dataset.messageId = id;
     
-    for (let file of files) {
-        formData.append('files', file);
-    }
+    const formattedContent = formatContent(content);
     
-    try {
-        const response = await fetch('/api/upload', {
-            method: 'POST',
-            body: formData
-        });
-        
-        const uploadedFiles = await response.json();
-        state.uploadedFiles.push(...uploadedFiles);
-        renderFilePreview();
-    } catch (error) {
-        console.error('Error uploading files:', error);
-        showToast('Failed to upload files', 'error');
+    messageEl.innerHTML = `
+        <div class="message-header">
+            <span class="message-role">${role === 'user' ? 'You' : 'LAIM'}</span>
+            <span class="message-timestamp">${formatDate(timestamp)}</span>
+        </div>
+        <div class="message-content">${formattedContent}</div>
+    `;
+    
+    messagesContainer.appendChild(messageEl);
+    
+    if (isNew) {
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
 }
 
-function renderFilePreview() {
-    const preview = document.getElementById('filePreview');
-    
-    if (state.uploadedFiles.length === 0) {
-        preview.innerHTML = '';
-        return;
-    }
-    
-    preview.innerHTML = state.uploadedFiles.map((file, index) => {
-        const isImage = file.mime_type.startsWith('image/');
-        // Fixed: Replaced corrupted characters with standard file emoji and close HTML entity
-        return `
-            <div class="file-preview-item">
-                ${isImage ? `<img src="/api/files/${file.id}" alt="${escapeHtml(file.name)}">` : '📄'}
-                <span>${escapeHtml(file.name)}</span>
-                <button class="file-remove" onclick="removeFile(${index})" title="Remove file">&times;</button>
-            </div>
-        `;
-    }).join('');
-}
 
-function removeFile(index) {
-    state.uploadedFiles.splice(index, 1);
-    renderFilePreview();
-}
+async function sendMessage(event) {
+    if (event) event.preventDefault();
+    if (state.isStreaming) return;
 
-// Send Message
-async function sendMessage() {
-    const input = document.getElementById('userInput');
-    const message = input.value.trim();
-    
-    if (!message && state.uploadedFiles.length === 0) return;
-    
-    // Create chat if none exists
+    const inputField = document.getElementById('messageInput');
+    const userContent = inputField.value.trim();
+    if (!userContent) return;
+
+    // FIX (Client Side): Prevent sending if essential state is missing
     if (!state.currentChatId) {
-        await createNewChat();
+        showToast('Error: A chat must be selected or started. Starting a new chat...', 'warning');
+        await newChat(); // Try to start a new chat if none exists
+        if (!state.currentChatId) {
+             showToast('Error: Failed to start a new chat. Cannot send message.', 'danger');
+             return;
+        }
     }
     
-    const sendBtn = document.getElementById('sendBtn');
-    sendBtn.disabled = true;
-    sendBtn.textContent = 'Sending...';
+    if (!state.currentModel) {
+        showToast('Error: Please select a model.', 'warning');
+        return;
+    }
+    
+    state.isStreaming = true;
+    inputField.value = '';
+    
+    // 1. Append User Message to UI
+    const userMessageId = 'temp-' + Date.now();
+    appendMessage('user', userContent, new Date().toISOString(), userMessageId, true);
+    
+    // 2. Add temporary Assistant Message (for streaming target)
+    const assistantMessageId = 'temp-assistant-' + Date.now();
+    appendMessage('assistant', '<span class="loading-dots"></span>', new Date().toISOString(), assistantMessageId, true);
+    const assistantEl = document.querySelector(`[data-message-id="${assistantMessageId}"] .message-content`);
     
     try {
-        // Save user message
-        const fileIds = state.uploadedFiles.map(f => f.id);
-        await fetch('/api/messages', {
+        const response = await fetch('/api/messages', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+                'Content-Type': 'application/json',
+                'X-Session-ID': state.sessionId
+            },
             body: JSON.stringify({
                 chat_id: state.currentChatId,
-                role: 'user',
-                content: message,
-                file_ids: fileIds
+                content: userContent,
+                model: state.currentModel,
+                files: state.uploadedFiles // send uploaded files if any
             })
         });
-        
-        input.value = '';
-        state.uploadedFiles = [];
-        renderFilePreview();
-        
-        // Reload messages to show user message
-        await loadChat(state.currentChatId);
-        
-        // Get AI response
-        const systemPrompt = document.getElementById('systemPrompt').value.trim();
-        const options = {
-            temperature: parseFloat(document.getElementById('temperature').value),
-            top_p: parseFloat(document.getElementById('topP').value),
-            num_predict: parseInt(document.getElementById('maxTokens').value)
-        };
-        
-        // Prepare API request
-        const apiBody = {
-            chat_id: state.currentChatId,
-            model: state.currentModel,
-            message: message,
-            file_ids: fileIds,
-            options: options
-        };
 
-        // Inject system prompt if present (by prepending to context/message logic usually, 
-        // but here we might pass it as a separate message or options depending on Ollama API version.
-        // For simplicity with this backend, we assume Ollama handles system prompt via modelfile or context,
-        // but we can prepend it to the message if it's the first message, or rely on backend to handle it.)
+        if (response.status === 400) {
+            const errorData = await response.json();
+            throw new Error(`Server Error (400): ${errorData.error || 'Bad Request. Check server logs.'}`);
+        }
         
-        const response = await fetch('/api/chat', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(apiBody)
-        });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Server returned status: ${response.status}. Details: ${errorText.substring(0, 100)}`);
+        }
         
-        // Stream response
+        if (!response.body) {
+            throw new Error("No response body received from server.");
+        }
+        
         const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let assistantMessage = '';
-        
-        // Add assistant message placeholder
-        const container = document.getElementById('messagesContainer');
-        const messageDiv = document.createElement('div');
-        messageDiv.className = 'message assistant';
-        messageDiv.innerHTML = `
-            <div class="message-role">assistant</div>
-            <div class="message-content"><span class="typing-indicator">...</span></div>
-        `;
-        container.appendChild(messageDiv);
-        const contentDiv = messageDiv.querySelector('.message-content');
-        
+        const decoder = new TextDecoder("utf-8");
+        let fullResponseContent = '';
+        let initialContentDisplayed = false;
+
+        assistantEl.innerHTML = ''; // Clear loading dots
+
         while (true) {
-            const { done, value } = await reader.read();
+            const { value, done } = await reader.read();
             if (done) break;
+
+            const chunk = decoder.decode(value, { stream: true });
             
-            const chunk = decoder.decode(value);
-            const lines = chunk.split('\n');
-            
-            for (let line of lines) {
-                if (line.trim()) {
-                    try {
-                        const data = JSON.parse(line);
-                        if (data.message && data.message.content) {
-                            if (assistantMessage === '') contentDiv.innerHTML = ''; // Clear typing indicator
-                            assistantMessage += data.message.content;
-                            contentDiv.innerHTML = formatContent(assistantMessage);
-                            container.scrollTop = container.scrollHeight;
-                        }
-                    } catch (e) {
-                        // Skip invalid JSON
+            // Process the stream: each line is a JSON object
+            const lines = chunk.split('\n').filter(line => line.trim() !== '');
+            for (const line of lines) {
+                try {
+                    const data = JSON.parse(line);
+                    
+                    if (data.message && data.message.content) {
+                        fullResponseContent += data.message.content;
+                    } else if (data.content) { // Fallback for simple 'generate'
+                        fullResponseContent += data.content;
                     }
+                    
+                    if (fullResponseContent) {
+                        assistantEl.innerHTML = formatContent(fullResponseContent);
+                        initialContentDisplayed = true;
+                        document.getElementById('messagesContainer').scrollTop = document.getElementById('messagesContainer').scrollHeight;
+                    }
+                    
+                } catch (e) {
+                    // Ignore non-JSON lines or partial JSON chunks
                 }
             }
         }
         
-        // Save assistant message
-        await fetch('/api/messages', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                chat_id: state.currentChatId,
-                role: 'assistant',
-                content: assistantMessage,
-                file_ids: []
-            })
-        });
+        if (!initialContentDisplayed) {
+             assistantEl.innerHTML = "I'm sorry, I couldn't generate a response.";
+        }
         
-        // Reload chat list to update timestamp
-        await loadChats();
-        
+        // After streaming is complete, reload chats to update the chat list (timestamp)
+        await loadChats(); 
+
     } catch (error) {
-        console.error('Error sending message:', error);
-        showToast('Failed to send message', 'error');
-        sendBtn.disabled = false;
-        sendBtn.textContent = 'Send';
+        console.error('Error in sendMessage:', error);
+        assistantEl.innerHTML = `**Error:** ${error.message}`;
+        showToast(`Message failed: ${error.message}`, 'danger');
+        document.getElementById('messagesContainer').scrollTop = document.getElementById('messagesContainer').scrollHeight;
     } finally {
-        sendBtn.disabled = false;
-        sendBtn.textContent = 'Send';
+        state.isStreaming = false;
+        state.uploadedFiles = []; // Clear files after use
     }
 }
 
-// Model Management
+// --- Model Management ---
+
 async function loadModels() {
     try {
         const response = await fetch('/api/models');
-        const data = await response.json();
-        state.models = data.models || [];
+        if (!response.ok) throw new Error('Failed to fetch models.');
         
-        const select = document.getElementById('modelSelect');
-        const deleteSelect = document.getElementById('deleteModelSelect');
+        state.models = await response.json();
+        
+        const modelSelect = document.getElementById('modelSelect');
+        const deleteModelSelect = document.getElementById('deleteModelSelect');
+        
+        // Clear previous options
+        modelSelect.innerHTML = '';
+        deleteModelSelect.innerHTML = '<option value="">Select model to delete</option>';
         
         if (state.models.length === 0) {
-            select.innerHTML = '<option value="">No models installed</option>';
+            modelSelect.innerHTML = '<option value="" disabled>No models available</option>';
+            showToast('No Ollama models found. Pull one using the Models tab.', 'warning', 5000);
             return;
         }
-        
-        select.innerHTML = state.models.map(model => 
-            `<option value="${model.name}">${model.name}</option>`
-        ).join('');
-        
-        deleteSelect.innerHTML = '<option value="">Select model to delete</option>' +
-            state.models.map(model => 
-                `<option value="${model.name}">${model.name}</option>`
-            ).join('');
-        
-        if (!state.currentModel && state.models.length > 0) {
-            state.currentModel = state.models[0].name;
-            select.value = state.currentModel;
+
+        state.models.forEach(modelName => {
+            const option = document.createElement('option');
+            option.value = modelName;
+            option.textContent = modelName.replace(':latest', '');
+            modelSelect.appendChild(option);
+
+            const deleteOption = option.cloneNode(true);
+            deleteModelSelect.appendChild(deleteOption);
+        });
+
+        // Set state to the first model or the currently active model
+        if (!state.currentModel || !state.models.includes(state.currentModel)) {
+            state.currentModel = state.models[0];
+            modelSelect.value = state.models[0];
+        } else {
+            modelSelect.value = state.currentModel;
         }
-        
-        renderInstalledModels();
+
     } catch (error) {
         console.error('Error loading models:', error);
-        showToast('Failed to load models list', 'error');
+        const modelSelect = document.getElementById('modelSelect');
+        modelSelect.innerHTML = '<option value="" disabled>Connection Error</option>';
+        showToast('Error connecting to Ollama service.', 'danger');
     }
 }
 
-function renderInstalledModels() {
-    const container = document.getElementById('installedModels');
-    
-    if (state.models.length === 0) {
-        container.innerHTML = '<p>No models installed. Pull a model to get started.</p>';
-        return;
-    }
-    
-    container.innerHTML = state.models.map(model => `
-        <div class="model-item">
-            <div>
-                <strong>${model.name}</strong>
-                <div style="font-size: 0.875rem; color: var(--text-secondary);">
-                    Size: ${formatBytes(model.size)}
-                </div>
-            </div>
-        </div>
-    `).join('');
-}
+async function pullModel(modelName) {
+    const pullProgressEl = document.getElementById('pullProgress');
+    pullProgressEl.textContent = `Attempting to pull ${modelName}...`;
 
-async function pullModel() {
-    const modelName = document.getElementById('modelName').value.trim();
-    if (!modelName) {
-        showToast('Please enter a model name', 'warning');
-        return;
-    }
-    
-    const pullBtn = document.getElementById('pullBtn');
-    const progress = document.getElementById('pullProgress');
-    
-    pullBtn.disabled = true;
-    pullBtn.textContent = 'Pulling...';
-    progress.innerHTML = 'Starting pull...';
-    
     try {
-        const response = await fetch('/api/pull', {
+        const response = await fetch('/api/models/pull', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name: modelName, stream: true })
         });
-        
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Server returned error: ${errorText}`);
+        }
+
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         
         while (true) {
-            const { done, value } = await reader.read();
+            const { value, done } = await reader.read();
             if (done) break;
-            
+
             const chunk = decoder.decode(value);
-            const lines = chunk.split('\n');
-            
-            for (let line of lines) {
-                if (line.trim()) {
-                    try {
-                        const data = JSON.parse(line);
-                        // Basic formatting for status updates
-                        let statusLine = data.status;
-                        if(data.completed && data.total) {
-                           statusLine += ` (${Math.round(data.completed/data.total*100)}%)`;
-                        }
-                        progress.innerHTML += `\n${statusLine}`;
-                        progress.scrollTop = progress.scrollHeight;
-                    } catch (e) {
-                        // Skip invalid JSON
+            // Process the stream: each line is a JSON object
+            const lines = chunk.split('\n').filter(line => line.trim() !== '');
+            for (const line of lines) {
+                try {
+                    const data = JSON.parse(line);
+                    if (data.status) {
+                        pullProgressEl.textContent = `[${data.status}] ${data.digest || ''}`;
+                    } else if (data.error) {
+                         throw new Error(data.error);
                     }
+                    if (data.total && data.completed) {
+                        const percent = ((data.completed / data.total) * 100).toFixed(2);
+                        pullProgressEl.textContent += ` (${percent}%)`;
+                    }
+                } catch (e) {
+                    console.warn("Failed to parse pull stream JSON:", line);
                 }
             }
         }
-        
-        progress.innerHTML += '\n\nPull completed!';
-        showToast(`Model ${modelName} installed successfully`, 'success');
-        await loadModels();
+
+        pullProgressEl.textContent = `${modelName} pull complete!`;
+        await loadModels(); // Refresh list
+        showToast(`${modelName} pulled successfully.`, 'success');
         
     } catch (error) {
-        console.error('Error pulling model:', error);
-        progress.innerHTML += `\n\nError: ${error.message}`;
-        showToast('Failed to pull model', 'error');
-    } finally {
-        pullBtn.disabled = false;
-        pullBtn.textContent = 'Pull Model';
+        console.error('Model pull error:', error);
+        pullProgressEl.textContent = `Error: ${error.message}`;
+        showToast(`Model pull failed: ${error.message}`, 'danger');
     }
 }
 
-async function deleteModel() {
-    const select = document.getElementById('deleteModelSelect');
-    const modelName = select.value;
-    
+async function deleteModel(modelName) {
     if (!modelName) {
-        showToast('Please select a model to delete', 'warning');
+        showToast('Please select a model to delete.', 'warning');
         return;
     }
     
-    if (!confirm(`Are you sure you want to delete ${modelName}?`)) {
-        return;
-    }
-    
+    if (!confirm(`Are you sure you want to delete the model: ${modelName}?`)) return;
+
     try {
-        await fetch('/api/delete', {
-            method: 'POST',
+        const response = await fetch('/api/models/delete', {
+            method: 'DELETE',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name: modelName })
         });
-        
-        await loadModels();
-        showToast('Model deleted successfully', 'success');
-    } catch (error) {
-        console.error('Error deleting model:', error);
-        showToast('Failed to delete model', 'error');
-    }
-}
 
-// Generate Interface
-async function generateText() {
-    const prompt = document.getElementById('generatePrompt').value.trim();
-    if (!prompt) return;
-    
-    const output = document.getElementById('generateOutput');
-    const generateBtn = document.getElementById('generateBtn');
-    
-    generateBtn.disabled = true;
-    generateBtn.textContent = 'Generating...';
-    output.textContent = '';
-    
-    try {
-        const response = await fetch('/api/generate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                model: state.currentModel,
-                prompt: prompt,
-                stream: true
-            })
-        });
-        
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let fullText = '';
-        
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            
-            const chunk = decoder.decode(value);
-            const lines = chunk.split('\n');
-            
-            for (let line of lines) {
-                if (line.trim()) {
-                    try {
-                        const data = JSON.parse(line);
-                        if (data.response) {
-                            fullText += data.response;
-                            output.textContent = fullText;
-                        }
-                    } catch (e) {
-                        // Skip invalid JSON
-                    }
-                }
-            }
+        if (response.status === 404) {
+            throw new Error('Model not found on Ollama server.');
         }
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ error: 'Unknown deletion error' }));
+            throw new Error(errorData.error || 'Failed to delete model.');
+        }
+
+        showToast(`${modelName} deleted successfully.`, 'success');
+        await loadModels(); // Refresh list
+        
     } catch (error) {
-        console.error('Error generating text:', error);
-        output.textContent = 'Error: ' + error.message;
-        showToast('Generation failed', 'error');
-    } finally {
-        generateBtn.disabled = false;
-        generateBtn.textContent = 'Generate Response';
+        console.error('Model delete error:', error);
+        showToast(`Model deletion failed: ${error.message}`, 'danger');
     }
 }
 
-// Event Listeners
+// --- UI Event Listeners ---
+
 function setupEventListeners() {
-    // New chat
-    document.getElementById('newChatBtn').addEventListener('click', createNewChat);
+    // Chat Form Submission
+    document.getElementById('chatForm').addEventListener('submit', sendMessage);
     
-    // Send message
-    document.getElementById('sendBtn').addEventListener('click', sendMessage);
-    document.getElementById('userInput').addEventListener('keypress', (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            sendMessage();
-        }
-    });
+    // New Chat Button
+    document.getElementById('newChatBtn').addEventListener('click', newChat);
     
-    // File upload
-    document.getElementById('attachBtn').addEventListener('click', () => {
-        document.getElementById('fileInput').click();
-    });
-    
-    document.getElementById('fileInput').addEventListener('change', (e) => {
-        if (e.target.files.length > 0) {
-            handleFileUpload(Array.from(e.target.files));
-        }
-    });
-    
-    // Model selection
+    // Model Select Change
     document.getElementById('modelSelect').addEventListener('change', (e) => {
         state.currentModel = e.target.value;
     });
-    
-    // API type switching
+
+    // API Type Switch (to show/hide interfaces)
     document.getElementById('apiType').addEventListener('change', (e) => {
-        document.querySelectorAll('.interface-panel').forEach(panel => {
-            panel.classList.remove('active');
-        });
-        
-        const selectedType = e.target.value;
-        if (selectedType === 'chat') {
-            document.getElementById('chatInterface').classList.add('active');
-        } else if (selectedType === 'generate') {
-            document.getElementById('generateInterface').classList.add('active');
-        } else if (selectedType === 'models') {
-            document.getElementById('modelsInterface').classList.add('active');
+        document.querySelectorAll('.interface-section').forEach(el => el.classList.remove('active'));
+        document.getElementById(`${e.target.value}Interface`).classList.add('active');
+    });
+
+    // Pull Model
+    document.getElementById('pullBtn').addEventListener('click', () => {
+        const modelName = document.getElementById('modelName').value.trim();
+        if (modelName) {
+            pullModel(modelName);
+        } else {
+            showToast('Please enter a model name (e.g., llama3).', 'warning');
         }
     });
-    
-    // Generate
-    document.getElementById('generateBtn').addEventListener('click', generateText);
-    
-    // Model management
-    document.getElementById('refreshModels').addEventListener('click', async () => {
-        await loadModels();
-        showToast('Models list refreshed', 'info');
+
+    // Delete Model
+    document.getElementById('deleteBtn').addEventListener('click', () => {
+        const modelName = document.getElementById('deleteModelSelect').value;
+        deleteModel(modelName);
     });
-    document.getElementById('pullBtn').addEventListener('click', pullModel);
-    document.getElementById('deleteBtn').addEventListener('click', deleteModel);
     
-    // Title editing
+    // Edit Title Modal Handlers
+    const titleModal = document.getElementById('titleModal');
+    const titleInput = document.getElementById('titleInput');
+    
     document.getElementById('editTitleBtn').addEventListener('click', () => {
-        if (!state.currentChatId) return;
-        document.getElementById('titleModal').classList.add('active');
-        const chat = state.chats.find(c => c.id === state.currentChatId);
-        document.getElementById('titleInput').value = chat.title;
-        document.getElementById('titleInput').focus();
+        if (!state.currentChatId || state.currentChatId === 'new') {
+            showToast("Can only edit title of saved chats.", 'warning');
+            return;
+        }
+        const currentTitle = document.getElementById('chatTitle').textContent;
+        titleInput.value = currentTitle;
+        titleModal.style.display = 'flex';
+    });
+    
+    document.getElementById('cancelTitleBtn').addEventListener('click', () => {
+        titleModal.style.display = 'none';
     });
     
     document.getElementById('saveTitleBtn').addEventListener('click', async () => {
-        const newTitle = document.getElementById('titleInput').value.trim();
-        if (!newTitle || !state.currentChatId) return;
+        const newTitle = titleInput.value.trim();
+        if (!newTitle) {
+            showToast('Title cannot be empty.', 'warning');
+            return;
+        }
         
         try {
-            // Optimistic update
-            const chat = state.chats.find(c => c.id === state.currentChatId);
-            if (chat) {
-                chat.title = newTitle;
-                document.getElementById('chatTitle').textContent = newTitle;
-                renderChatList();
-            }
-
-            await fetch(`/api/chats/${state.currentChatId}`, {
-                method: 'PUT',
+            const response = await fetch('/api/chat/title', {
+                method: 'POST',
                 headers: { 
                     'Content-Type': 'application/json',
                     'X-Session-ID': state.sessionId
                 },
-                body: JSON.stringify({ title: newTitle })
+                body: JSON.stringify({
+                    chat_id: state.currentChatId,
+                    title: newTitle
+                })
             });
-
-            document.getElementById('titleModal').classList.remove('active');
-            showToast('Title updated', 'success');
-        } catch (err) {
-            showToast('Failed to update title', 'error');
+            
+            if (!response.ok) throw new Error('Failed to save title.');
+            
+            document.getElementById('chatTitle').textContent = escapeHtml(newTitle);
+            titleModal.style.display = 'none';
+            await loadChats(); // Refresh chat list
+            showToast('Chat title updated.', 'success');
+            
+        } catch (error) {
+            console.error('Error saving title:', error);
+            showToast('Error saving chat title.', 'danger');
         }
     });
-    
-    document.getElementById('cancelTitleBtn').addEventListener('click', () => {
-        document.getElementById('titleModal').classList.remove('active');
-    });
-    
-    // Sidebar toggle
-    document.getElementById('toggleSidebar').addEventListener('click', () => {
-        document.getElementById('sidebar').classList.toggle('collapsed');
-    });
-    
-    document.getElementById('mobileSidebarToggle').addEventListener('click', () => {
-        document.getElementById('sidebar').classList.toggle('open');
-    });
-    
-    // Parameter sliders
-    ['temperature', 'topP', 'maxTokens'].forEach(id => {
-        document.getElementById(id).addEventListener('input', updateParameterValues);
-    });
 }
 
-function updateParameterValues() {
-    document.getElementById('tempValue').textContent = 
-        document.getElementById('temperature').value;
-    document.getElementById('topPValue').textContent = 
-        document.getElementById('topP').value;
-    document.getElementById('maxTokensValue').textContent = 
-        document.getElementById('maxTokens').value;
-}
+// --- Utility Functions ---
 
-// Utility Functions
+function showToast(message, type = 'info', duration = 3000) {
+    const container = document.getElementById('toastContainer');
+    if (!container) return;
 
-// Added: Missing Toast Logic for CSS compatibility
-function showToast(message, type = 'info') {
-    // Create toast element
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
     toast.textContent = message;
-    
-    document.body.appendChild(toast);
-    
-    // Trigger reflow
-    toast.offsetHeight;
-    
-    // Show
-    toast.classList.add('show');
-    
-    // Remove after 3 seconds
+
+    container.appendChild(toast);
+
+    // Auto-remove
     setTimeout(() => {
-        toast.classList.remove('show');
-        setTimeout(() => {
-            document.body.removeChild(toast);
-        }, 300); // Match transition time
-    }, 3000);
+        toast.classList.add('fade-out');
+        setTimeout(() => toast.remove(), 500); // Wait for fade-out transition
+    }, duration);
+}
+
+
+function updateParameterValues() {
+    // Placeholder function for model parameter updates
 }
 
 function formatContent(content) {
     if (!content) return '';
     
     // Basic markdown rendering
-    content = escapeHtml(content);
+    let htmlContent = escapeHtml(content);
     
     // Code blocks
-    content = content.replace(/```(\w+)?\n([\s\S]*?)```/g, (match, lang, code) => {
+    htmlContent = htmlContent.replace(/```(\w+)?\n([\s\S]*?)```/g, (match, lang, code) => {
         return `<pre><code class="language-${lang || 'text'}">${code}</code></pre>`;
     });
     
     // Inline code
-    content = content.replace(/`([^`]+)`/g, '<code>$1</code>');
+    htmlContent = htmlContent.replace(/`([^`]+)`/g, '<code>$1</code>');
     
     // Bold
-    content = content.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    htmlContent = htmlContent.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
     
     // Italic
-    content = content.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+    htmlContent = htmlContent.replace(/\*([^*]+)\*/g, '<em>$1</em>');
     
     // Line breaks
-    content = content.replace(/\n/g, '<br>');
+    htmlContent = htmlContent.replace(/\n/g, '<br>');
     
-    return content;
+    return htmlContent;
 }
 
 function escapeHtml(text) {
@@ -768,15 +643,10 @@ function formatDate(dateString) {
     if (diff < 60000) return 'Just now';
     if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
     if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-    if (diff < 604800000) return `${Math.floor(diff / 86400000)}d ago`;
     
-    return date.toLocaleDateString();
-}
-
-function formatBytes(bytes) {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+    const year = date.getFullYear();
+    const month = date.getMonth() + 1;
+    const day = date.getDate();
+    
+    return `${month}/${day}/${year}`;
 }

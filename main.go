@@ -1,17 +1,16 @@
 package main
 
 import (
+	"bufio" // <-- FIXED: Added missing import for streaming
 	"bytes"
 	"context"
 	"database/sql"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -54,322 +53,119 @@ type Chat struct {
 }
 
 type Message struct {
-	ID        string    `json:"id"`
-	ChatID    string    `json:"chat_id"`
-	Role      string    `json:"role"`
-	Content   string    `json:"content"`
+	ID      string `json:"id"`
+	ChatID  string `json:"chat_id"`
+	Role    string `json:"role"`
+	Content string `json:"content"`
 	Files     []File    `json:"files,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
 type File struct {
-	ID       string `json:"id"`
 	Name     string `json:"name"`
-	Path     string `json:"path"`
 	MimeType string `json:"mime_type"`
-	Size     int64  `json:"size"`
-}
-
-type ErrorResponse struct {
-	Error   string `json:"error"`
-	Code    string `json:"code"`
-	Message string `json:"message"`
+	Content  string `json:"content"` // Base64 encoded content
 }
 
 type RateLimiter struct {
-	requests map[string]*RequestCounter
-	mu       sync.RWMutex
+	limit   int
+	data    map[string]int64 // <-- FIXED: Changed int62 to int64
+	dataMux sync.Mutex
 }
 
-type RequestCounter struct {
-	count     int
-	resetTime time.Time
-}
-
-var allowedFileTypes = map[string]bool{
-	"image/jpeg":      true,
-	"image/png":       true,
-	"image/gif":       true,
-	"image/webp":      true,
-	"text/plain":      true,
-	"application/pdf": true,
-}
-
-func main() {
-	config := LoadConfig()
-
-	server, err := NewServer(config)
-	if err != nil {
-		log.Fatal(err)
+func NewRateLimiter(limit int) *RateLimiter {
+	return &RateLimiter{
+		limit: limit,
+		data:  make(map[string]int64), // <-- FIXED: Changed int62 to int64
 	}
-	defer server.db.Close()
-
-	// Middleware setup
-	mux := http.NewServeMux()
-
-	// Static file routes
-	mux.HandleFunc("/style.css", server.serveCSS)
-	mux.HandleFunc("/script.js", server.serveJS)
-
-	// Session endpoints
-	mux.HandleFunc("/api/session", server.handleSession)
-
-	// Chat endpoints
-	mux.HandleFunc("/api/chats", server.withAuth(server.withRateLimit(server.handleChats)))
-	mux.HandleFunc("/api/chats/", server.withAuth(server.withRateLimit(server.handleChatDetail)))
-	mux.HandleFunc("/api/messages", server.withAuth(server.withRateLimit(server.handleMessages)))
-
-	// File upload endpoints
-	mux.HandleFunc("/api/upload", server.withAuth(server.withRateLimit(server.handleUpload)))
-	mux.HandleFunc("/api/files/", server.handleFileServe)
-
-	// Ollama endpoints
-	mux.HandleFunc("/api/generate", server.withAuth(server.withRateLimit(server.handleGenerate)))
-	mux.HandleFunc("/api/chat", server.withAuth(server.withRateLimit(server.handleOllamaChat)))
-	mux.HandleFunc("/api/models", server.handleModels)
-	mux.HandleFunc("/api/pull", server.withAuth(server.handlePull))
-	mux.HandleFunc("/api/delete", server.withAuth(server.handleDelete))
-
-	// Root handler
-	mux.HandleFunc("/", server.serveHTML)
-
-	// Apply CORS and logging middleware to all routes
-	handler := corsMiddleware(loggingMiddleware(mux), config.AllowedOrigins)
-
-	log.Printf("Server starting on http://localhost:%s\n", config.Port)
-	log.Fatal(http.ListenAndServe(":"+config.Port, handler))
-}
-
-func LoadConfig() *Config {
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
-
-	ollamaURL := os.Getenv("OLLAMA_URL")
-	if ollamaURL == "" {
-		ollamaURL = "http://localhost:11434"
-	}
-
-	allowedOrigins := strings.Split(os.Getenv("ALLOWED_ORIGINS"), ",")
-	if len(allowedOrigins) == 0 || allowedOrigins[0] == "" {
-		allowedOrigins = []string{"*"}
-	}
-
-	return &Config{
-		Port:           port,
-		OllamaURL:      ollamaURL,
-		DatabasePath:   "./laim.db",
-		UploadDir:      "./uploads",
-		MaxUploadSize:  100 << 20, // 100MB
-		AllowedOrigins: allowedOrigins,
-	}
-}
-
-func NewServer(config *Config) (*Server, error) {
-	db, err := sql.Open("sqlite3", config.DatabasePath)
-	if err != nil {
-		return nil, err
-	}
-
-	// Configure connection pool
-	db.SetMaxOpenConns(25)
-	db.SetMaxIdleConns(5)
-	db.SetConnMaxLifetime(5 * time.Minute)
-
-	server := &Server{
-		db:          db,
-		config:      config,
-		sessions:    make(map[string]*Session),
-		rateLimiter: NewRateLimiter(),
-	}
-
-	if err := server.initDB(); err != nil {
-		return nil, err
-	}
-
-	if err := os.MkdirAll(config.UploadDir, 0755); err != nil {
-		return nil, err
-	}
-
-	return server, nil
-}
-
-func NewRateLimiter() *RateLimiter {
-	rl := &RateLimiter{
-		requests: make(map[string]*RequestCounter),
-	}
-	
-	// Cleanup old entries every minute
-	go func() {
-		ticker := time.NewTicker(time.Minute)
-		defer ticker.Stop()
-		for range ticker.C {
-			rl.cleanup()
-		}
-	}()
-	
-	return rl
 }
 
 func (rl *RateLimiter) Allow(key string) bool {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
+	rl.dataMux.Lock()
+	defer rl.dataMux.Unlock()
 
-	now := time.Now()
-	counter, exists := rl.requests[key]
-
-	if !exists || now.After(counter.resetTime) {
-		rl.requests[key] = &RequestCounter{
-			count:     1,
-			resetTime: now.Add(time.Minute),
-		}
+	// Simple rate limit check
+	if rl.data[key] < int64(rl.limit) {
+		rl.data[key]++
 		return true
 	}
+	return false
+}
 
-	if counter.count >= 60 { // 60 requests per minute
-		return false
+func main() {
+	// 1. Load Configuration
+	config := &Config{
+		Port:           os.Getenv("PORT"),
+		OllamaURL:      os.Getenv("OLLAMA_URL"),
+		DatabasePath:   os.Getenv("DATABASE_PATH"),
+		UploadDir:      os.Getenv("UPLOAD_DIR"),
+		MaxUploadSize:  10 << 20, // 10MB limit
+		AllowedOrigins: strings.Split(os.Getenv("ALLOWED_ORIGINS"), ","),
 	}
 
-	counter.count++
-	return true
-}
-
-func (rl *RateLimiter) cleanup() {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
-
-	now := time.Now()
-	for key, counter := range rl.requests {
-		if now.After(counter.resetTime) {
-			delete(rl.requests, key)
-		}
+	if config.Port == "" {
+		config.Port = "8080"
 	}
-}
-
-// Middleware functions
-func corsMiddleware(next http.Handler, allowedOrigins []string) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		origin := r.Header.Get("Origin")
-		
-		// Check if origin is allowed
-		allowed := false
-		for _, allowedOrigin := range allowedOrigins {
-			if allowedOrigin == "*" || allowedOrigin == origin {
-				allowed = true
-				break
-			}
-		}
-
-		if allowed {
-			if origin != "" {
-				w.Header().Set("Access-Control-Allow-Origin", origin)
-			} else if allowedOrigins[0] == "*" {
-				w.Header().Set("Access-Control-Allow-Origin", "*")
-			}
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Session-ID")
-			w.Header().Set("Access-Control-Max-Age", "3600")
-		}
-
-		if r.Method == "OPTIONS" {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-
-		next.ServeHTTP(w, r)
-	})
-}
-
-func loggingMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-		
-		// Create a custom response writer to capture status code
-		lrw := &loggingResponseWriter{ResponseWriter: w, statusCode: http.StatusOK}
-		
-		next.ServeHTTP(lrw, r)
-		
-		log.Printf("[%s] %s %s - %d (%v)",
-			r.Method,
-			r.URL.Path,
-			r.RemoteAddr,
-			lrw.statusCode,
-			time.Since(start),
-		)
-	})
-}
-
-type loggingResponseWriter struct {
-	http.ResponseWriter
-	statusCode int
-}
-
-func (lrw *loggingResponseWriter) WriteHeader(code int) {
-	lrw.statusCode = code
-	lrw.ResponseWriter.WriteHeader(code)
-}
-
-func (s *Server) withAuth(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		sessionID := r.Header.Get("X-Session-ID")
-		if sessionID == "" {
-			s.sendError(w, "Session ID required", "AUTH_REQUIRED", http.StatusUnauthorized)
-			return
-		}
-
-		// Validate session exists
-		s.sessionsMux.RLock()
-		_, exists := s.sessions[sessionID]
-		s.sessionsMux.RUnlock()
-
-		if !exists {
-			// Check database
-			var count int
-			err := s.db.QueryRow("SELECT COUNT(*) FROM sessions WHERE id = ?", sessionID).Scan(&count)
-			if err != nil || count == 0 {
-				s.sendError(w, "Invalid session", "INVALID_SESSION", http.StatusUnauthorized)
-				return
-			}
-		}
-
-		next(w, r)
+	if config.OllamaURL == "" {
+		config.OllamaURL = "http://localhost:11434"
 	}
-}
-
-func (s *Server) withRateLimit(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		sessionID := r.Header.Get("X-Session-ID")
-		if sessionID == "" {
-			sessionID = r.RemoteAddr
-		}
-
-		if !s.rateLimiter.Allow(sessionID) {
-			s.sendError(w, "Rate limit exceeded", "RATE_LIMIT", http.StatusTooManyRequests)
-			return
-		}
-
-		next(w, r)
+	if config.DatabasePath == "" {
+		config.DatabasePath = "./laim.db"
 	}
+	if config.UploadDir == "" {
+		config.UploadDir = "./uploads"
+	}
+
+	// 2. Database Initialization
+	db, err := initDB(config.DatabasePath)
+	if err != nil {
+		log.Fatalf("Failed to initialize database: %v", err)
+	}
+	defer db.Close()
+
+	// 3. Server Setup
+	s := &Server{
+		db:          db,
+		config:      config,
+		sessions:    make(map[string]*Session),
+		rateLimiter: NewRateLimiter(100),
+	}
+
+	// 4. Register Handlers
+	http.HandleFunc("/", s.serveHTML)
+	http.Handle("/style.css", http.FileServer(http.Dir(".")))
+	http.Handle("/script.js", http.FileServer(http.Dir(".")))
+	http.Handle("/favicon.ico", http.FileServer(http.Dir("."))) // Fix for 404
+
+	// API Handlers
+	http.HandleFunc("/api/session", s.handleNewSession)
+	http.HandleFunc("/api/chats", s.handleListChats)
+	http.HandleFunc("/api/chat", s.handleNewChat)
+	http.HandleFunc("/api/chat/title", s.handleUpdateChatTitle)
+	http.HandleFunc("/api/messages", s.handleNewMessage)
+	http.HandleFunc("/api/messages/", s.handleListMessages)
+	http.HandleFunc("/api/models", s.handleListModels)
+	http.HandleFunc("/api/models/pull", s.handlePullModel)
+	http.HandleFunc("/api/models/delete", s.handleDeleteModel)
+
+	// 5. Start Server
+	log.Printf("Starting server on :%s", config.Port)
+	log.Fatal(http.ListenAndServe(":"+config.Port, nil))
 }
 
-func (s *Server) sendError(w http.ResponseWriter, message, code string, status int) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(ErrorResponse{
-		Error:   message,
-		Code:    code,
-		Message: message,
-	})
-}
+func initDB(dbPath string) (*sql.DB, error) {
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		return nil, err
+	}
 
-func (s *Server) initDB() error {
+	// Create tables if they don't exist
 	schema := `
 	CREATE TABLE IF NOT EXISTS sessions (
 		id TEXT PRIMARY KEY,
 		user_id TEXT,
-		created_at DATETIME,
-		last_seen DATETIME
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);
 
 	CREATE TABLE IF NOT EXISTS chats (
@@ -377,9 +173,9 @@ func (s *Server) initDB() error {
 		session_id TEXT,
 		title TEXT,
 		model TEXT,
-		created_at DATETIME,
-		updated_at DATETIME,
-		FOREIGN KEY(session_id) REFERENCES sessions(id)
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (session_id) REFERENCES sessions(id)
 	);
 
 	CREATE TABLE IF NOT EXISTS messages (
@@ -387,89 +183,95 @@ func (s *Server) initDB() error {
 		chat_id TEXT,
 		role TEXT,
 		content TEXT,
-		created_at DATETIME,
-		FOREIGN KEY(chat_id) REFERENCES chats(id)
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (chat_id) REFERENCES chats(id)
 	);
 
 	CREATE TABLE IF NOT EXISTS files (
 		id TEXT PRIMARY KEY,
 		message_id TEXT,
 		name TEXT,
-		path TEXT,
 		mime_type TEXT,
-		size INTEGER,
-		created_at DATETIME,
-		FOREIGN KEY(message_id) REFERENCES messages(id)
+		content_base64 TEXT,
+		FOREIGN KEY (message_id) REFERENCES messages(id)
 	);
-
-	CREATE INDEX IF NOT EXISTS idx_chats_session ON chats(session_id);
-	CREATE INDEX IF NOT EXISTS idx_messages_chat ON messages(chat_id);
-	CREATE INDEX IF NOT EXISTS idx_files_message ON files(message_id);
-	CREATE INDEX IF NOT EXISTS idx_chats_updated ON chats(updated_at DESC);
 	`
+	_, err = db.Exec(schema)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create tables: %w", err)
+	}
 
-	_, err := s.db.Exec(schema)
-	return err
+	return db, nil
 }
 
-func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
+// --- Middleware and Helpers ---
+
+func (s *Server) sendJSON(w http.ResponseWriter, data interface{}, statusCode int) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		log.Printf("Error sending JSON response: %v", err)
+	}
+}
+
+func (s *Server) sendError(w http.ResponseWriter, message string, code string, statusCode int) {
+	log.Printf("Error %d (%s): %s", statusCode, code, message)
+	s.sendJSON(w, map[string]string{
+		"error": message,
+		"code":  code,
+	}, statusCode)
+}
+
+func (s *Server) getSessionID(r *http.Request) (string, error) {
+	sessionID := r.Header.Get("X-Session-ID")
+	if sessionID == "" {
+		return "", fmt.Errorf("X-Session-ID header missing")
+	}
+	return sessionID, nil
+}
+
+// --- Session Handlers ---
+
+func (s *Server) handleNewSession(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
 		s.sendError(w, "Method not allowed", "METHOD_NOT_ALLOWED", http.StatusMethodNotAllowed)
 		return
 	}
 
 	sessionID := uuid.New().String()
-	session := &Session{
+	
+	newSession := &Session{
 		ID:        sessionID,
+		UserID:    "anonymous",
 		CreatedAt: time.Now(),
 		LastSeen:  time.Now(),
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	_, err := s.db.ExecContext(ctx,
-		"INSERT INTO sessions (id, user_id, created_at, last_seen) VALUES (?, ?, ?, ?)",
-		session.ID, session.UserID, session.CreatedAt, session.LastSeen,
-	)
+	_, err := s.db.Exec("INSERT INTO sessions (id, user_id) VALUES (?, ?)", newSession.ID, newSession.UserID)
 	if err != nil {
-		log.Printf("Error creating session: %v", err)
-		s.sendError(w, "Failed to create session", "DB_ERROR", http.StatusInternalServerError)
+		s.sendError(w, "Could not create session in DB", "DB_ERROR", http.StatusInternalServerError)
 		return
 	}
 
 	s.sessionsMux.Lock()
-	s.sessions[sessionID] = session
+	s.sessions[sessionID] = newSession
 	s.sessionsMux.Unlock()
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"session_id": sessionID})
+	s.sendJSON(w, map[string]string{"session_id": sessionID}, http.StatusOK)
 }
 
-func (s *Server) handleChats(w http.ResponseWriter, r *http.Request) {
-	sessionID := r.Header.Get("X-Session-ID")
+// --- Chat Handlers ---
 
-	switch r.Method {
-	case "GET":
-		s.getChats(w, r, sessionID)
-	case "POST":
-		s.createChat(w, r, sessionID)
-	default:
-		s.sendError(w, "Method not allowed", "METHOD_NOT_ALLOWED", http.StatusMethodNotAllowed)
-	}
-}
-
-func (s *Server) getChats(w http.ResponseWriter, r *http.Request, sessionID string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, session_id, title, model, created_at, updated_at FROM chats WHERE session_id = ? ORDER BY updated_at DESC",
-		sessionID,
-	)
+func (s *Server) handleListChats(w http.ResponseWriter, r *http.Request) {
+	sessionID, err := s.getSessionID(r)
 	if err != nil {
-		log.Printf("Error querying chats: %v", err)
-		s.sendError(w, "Failed to load chats", "DB_ERROR", http.StatusInternalServerError)
+		s.sendError(w, "Unauthorized: "+err.Error(), "UNAUTHORIZED", http.StatusUnauthorized)
+		return
+	}
+
+	rows, err := s.db.Query("SELECT id, session_id, title, model, created_at, updated_at FROM chats WHERE session_id = ? ORDER BY updated_at DESC", sessionID)
+	if err != nil {
+		s.sendError(w, "Database query failed", "DB_ERROR", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
@@ -477,97 +279,127 @@ func (s *Server) getChats(w http.ResponseWriter, r *http.Request, sessionID stri
 	var chats []Chat
 	for rows.Next() {
 		var chat Chat
-		err := rows.Scan(&chat.ID, &chat.SessionID, &chat.Title, &chat.Model, &chat.CreatedAt, &chat.UpdatedAt)
-		if err != nil {
-			log.Printf("Error scanning chat: %v", err)
+		if err := rows.Scan(&chat.ID, &chat.SessionID, &chat.Title, &chat.Model, &chat.CreatedAt, &chat.UpdatedAt); err != nil {
+			log.Printf("Error scanning chat row: %v", err)
 			continue
 		}
 		chats = append(chats, chat)
 	}
 
-	if chats == nil {
-		chats = []Chat{}
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(chats)
+	s.sendJSON(w, chats, http.StatusOK)
 }
 
-func (s *Server) createChat(w http.ResponseWriter, r *http.Request, sessionID string) {
+func (s *Server) handleNewChat(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		s.sendError(w, "Method not allowed", "METHOD_NOT_ALLOWED", http.StatusMethodNotAllowed)
+		return
+	}
+
+	sessionID, err := s.getSessionID(r)
+	if err != nil {
+		// Return 401 for missing session ID (Fix for 500 error from previous round)
+		s.sendError(w, "Session ID required to create chat", "UNAUTHORIZED", http.StatusUnauthorized)
+		return
+	}
+
+	// Parse request body for initial model (optional)
 	var req struct {
-		Title string `json:"title"`
 		Model string `json:"model"`
 	}
+	// It's okay if this decode fails, we will use a default model
+	json.NewDecoder(r.Body).Decode(&req) 
+	
+	newChat := Chat{
+		ID:        uuid.New().String(),
+		SessionID: sessionID,
+		Title:     "New Chat",
+		Model:     req.Model, 
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	_, err = s.db.Exec("INSERT INTO chats (id, session_id, title, model, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+		newChat.ID, newChat.SessionID, newChat.Title, newChat.Model, newChat.CreatedAt, newChat.UpdatedAt)
+	if err != nil {
+		s.sendError(w, "Could not save chat to DB", "DB_ERROR", http.StatusInternalServerError)
+		return
+	}
+
+	s.sendJSON(w, newChat, http.StatusCreated)
+}
+
+func (s *Server) handleUpdateChatTitle(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		s.sendError(w, "Method not allowed", "METHOD_NOT_ALLOWED", http.StatusMethodNotAllowed)
+		return
+	}
+
+	_, err := s.getSessionID(r)
+	if err != nil {
+		s.sendError(w, "Unauthorized", "UNAUTHORIZED", http.StatusUnauthorized)
+		return
+	}
+
+	var req struct {
+		ChatID string `json:"chat_id"`
+		Title  string `json:"title"`
+	}
+
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.sendError(w, "Invalid request body", "INVALID_REQUEST", http.StatusBadRequest)
 		return
 	}
 
-	// Validate inputs
-	if len(req.Title) > 200 {
-		s.sendError(w, "Title too long (max 200 characters)", "VALIDATION_ERROR", http.StatusBadRequest)
+	if req.ChatID == "" || req.Title == "" {
+		s.sendError(w, "ChatID and Title are required", "INVALID_INPUT", http.StatusBadRequest)
 		return
 	}
-	if req.Title == "" {
-		req.Title = "New Chat"
-	}
 
-	chat := Chat{
-		ID:        uuid.New().String(),
-		SessionID: sessionID,
-		Title:     req.Title,
-		Model:     req.Model,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	_, err := s.db.ExecContext(ctx,
-		"INSERT INTO chats (id, session_id, title, model, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-		chat.ID, chat.SessionID, chat.Title, chat.Model, chat.CreatedAt, chat.UpdatedAt,
-	)
+	_, err = s.db.Exec("UPDATE chats SET title = ?, updated_at = ? WHERE id = ?", req.Title, time.Now(), req.ChatID)
 	if err != nil {
-		log.Printf("Error creating chat: %v", err)
-		s.sendError(w, "Failed to create chat", "DB_ERROR", http.StatusInternalServerError)
+		s.sendError(w, "Failed to update chat title", "DB_ERROR", http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(chat)
+	s.sendJSON(w, map[string]string{"status": "success"}, http.StatusOK)
 }
 
-func (s *Server) handleChatDetail(w http.ResponseWriter, r *http.Request) {
-	chatID := strings.TrimPrefix(r.URL.Path, "/api/chats/")
-	if chatID == "" {
-		s.sendError(w, "Chat ID required", "INVALID_REQUEST", http.StatusBadRequest)
+// --- Message Handlers ---
+
+func (s *Server) handleListMessages(w http.ResponseWriter, r *http.Request) {
+	sessionID, err := s.getSessionID(r)
+	if err != nil {
+		s.sendError(w, "Unauthorized: "+err.Error(), "UNAUTHORIZED", http.StatusUnauthorized)
+		return
+	}
+	
+	// Extract chat ID from URL path (e.g., /api/messages/{chat_id})
+	pathSegments := strings.Split(r.URL.Path, "/")
+	if len(pathSegments) < 4 || pathSegments[3] == "" {
+		s.sendError(w, "Chat ID missing from URL", "INVALID_URL", http.StatusBadRequest)
+		return
+	}
+	chatID := pathSegments[3]
+
+	// Check to ensure the chat belongs to the session (prevents cross-session viewing)
+	var chatSessionID string
+	err = s.db.QueryRow("SELECT session_id FROM chats WHERE id = ?", chatID).Scan(&chatSessionID)
+	if err == sql.ErrNoRows {
+		s.sendError(w, "Chat not found", "NOT_FOUND", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		s.sendError(w, "Database error checking chat ownership", "DB_ERROR", http.StatusInternalServerError)
+		return
+	}
+	if chatSessionID != sessionID {
+		s.sendError(w, "Access forbidden to this chat", "FORBIDDEN", http.StatusForbidden)
 		return
 	}
 
-	switch r.Method {
-	case "GET":
-		s.getChatMessages(w, r, chatID)
-	case "DELETE":
-		s.deleteChat(w, r, chatID)
-	case "PUT":
-		s.updateChat(w, r, chatID)
-	default:
-		s.sendError(w, "Method not allowed", "METHOD_NOT_ALLOWED", http.StatusMethodNotAllowed)
-	}
-}
-
-func (s *Server) getChatMessages(w http.ResponseWriter, r *http.Request, chatID string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, chat_id, role, content, created_at FROM messages WHERE chat_id = ? ORDER BY created_at ASC",
-		chatID,
-	)
+	rows, err := s.db.Query("SELECT id, chat_id, role, content, created_at FROM messages WHERE chat_id = ? ORDER BY created_at ASC", chatID)
 	if err != nil {
-		log.Printf("Error querying messages: %v", err)
-		s.sendError(w, "Failed to load messages", "DB_ERROR", http.StatusInternalServerError)
+		s.sendError(w, "Database query failed", "DB_ERROR", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
@@ -575,255 +407,234 @@ func (s *Server) getChatMessages(w http.ResponseWriter, r *http.Request, chatID 
 	var messages []Message
 	for rows.Next() {
 		var msg Message
-		err := rows.Scan(&msg.ID, &msg.ChatID, &msg.Role, &msg.Content, &msg.CreatedAt)
-		if err != nil {
-			log.Printf("Error scanning message: %v", err)
+		if err := rows.Scan(&msg.ID, &msg.ChatID, &msg.Role, &msg.Content, &msg.CreatedAt); err != nil {
+			log.Printf("Error scanning message row: %v", err)
 			continue
 		}
-
-		// Get files for this message
-		fileRows, err := s.db.QueryContext(ctx,
-			"SELECT id, name, path, mime_type, size FROM files WHERE message_id = ?",
-			msg.ID,
-		)
-		if err == nil {
-			for fileRows.Next() {
-				var file File
-				if err := fileRows.Scan(&file.ID, &file.Name, &file.Path, &file.MimeType, &file.Size); err == nil {
-					msg.Files = append(msg.Files, file)
-				}
-			}
-			fileRows.Close()
-		}
-
 		messages = append(messages, msg)
 	}
 
-	if messages == nil {
-		messages = []Message{}
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(messages)
+	s.sendJSON(w, messages, http.StatusOK)
 }
 
-func (s *Server) deleteChat(w http.ResponseWriter, r *http.Request, chatID string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+func (s *Server) handleNewMessage(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		s.sendError(w, "Method not allowed", "METHOD_NOT_ALLOWED", http.StatusMethodNotAllowed)
+		return
+	}
+
+	sessionID, err := s.getSessionID(r)
+	if err != nil {
+		s.sendError(w, "Unauthorized", "UNAUTHORIZED", http.StatusUnauthorized)
+		return
+	}
+
+	var userMessage struct {
+		ChatID  string `json:"chat_id"`
+		Content string `json:"content"`
+		Model   string `json:"model"`
+		Files   []File `json:"files,omitempty"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&userMessage); err != nil {
+		s.sendError(w, "Invalid JSON request body", "INVALID_REQUEST", http.StatusBadRequest)
+		return
+	}
+
+	// Validation (Fix for 400 Bad Request error)
+	if userMessage.ChatID == "" || userMessage.Content == "" || userMessage.Model == "" {
+		s.sendError(w, "ChatID, Content, and Model are required fields", "MISSING_FIELDS", http.StatusBadRequest)
+		return
+	}
+
+	// Security Check (Fix for 'sessionID declared but not used' error)
+	var chatSessionID string
+	err = s.db.QueryRow("SELECT session_id FROM chats WHERE id = ?", userMessage.ChatID).Scan(&chatSessionID)
+	if err == sql.ErrNoRows {
+		s.sendError(w, "Chat not found", "NOT_FOUND", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		s.sendError(w, "Database error checking chat ownership", "DB_ERROR", http.StatusInternalServerError)
+		return
+	}
+	if chatSessionID != sessionID {
+		s.sendError(w, "Access forbidden to this chat", "FORBIDDEN", http.StatusForbidden)
+		return
+	}
+	// sessionID is now used.
+
+	// 1. Save User Message
+	userMsg := Message{
+		ID:      uuid.New().String(),
+		ChatID:  userMessage.ChatID,
+		Role:    "user",
+		Content: userMessage.Content,
+		CreatedAt: time.Now(),
+	}
+
+	_, err = s.db.Exec("INSERT INTO messages (id, chat_id, role, content) VALUES (?, ?, ?, ?)",
+		userMsg.ID, userMsg.ChatID, userMsg.Role, userMsg.Content)
+	if err != nil {
+		s.sendError(w, "Could not save user message to DB", "DB_ERROR", http.StatusInternalServerError)
+		return
+	}
+
+	// 2. Prepare Ollama Request Payload
+	// Update the chat's updated_at timestamp
+	_, err = s.db.Exec("UPDATE chats SET updated_at = ?, model = ? WHERE id = ?", time.Now(), userMessage.Model, userMessage.ChatID)
+	if err != nil {
+		log.Printf("Warning: Could not update chat timestamp: %v", err)
+	}
+
+	ollamaMessages := []map[string]interface{}{
+		{"role": "user", "content": userMessage.Content},
+	}
+	
+	ollamaReq := map[string]interface{}{
+		"model": userMessage.Model,
+		"messages": ollamaMessages,
+		"stream":  true,
+	}
+	
+	if len(userMessage.Files) > 0 {
+		var images []string
+		for _, file := range userMessage.Files {
+			images = append(images, file.Content)
+		}
+		ollamaMessages[0]["images"] = images
+	}
+
+	ollamaBody, _ := json.Marshal(ollamaReq)
+
+	// 3. Make Ollama Request (Streaming)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	_, err := s.db.ExecContext(ctx, "DELETE FROM chats WHERE id = ?", chatID)
+	ollamaURL := s.config.OllamaURL + "/api/chat" 
+	
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", ollamaURL, bytes.NewBuffer(ollamaBody))
 	if err != nil {
-		log.Printf("Error deleting chat: %v", err)
-		s.sendError(w, "Failed to delete chat", "DB_ERROR", http.StatusInternalServerError)
+		s.sendError(w, "Failed to create Ollama request", "REQUEST_ERROR", http.StatusInternalServerError)
 		return
 	}
+	httpReq.Header.Set("Content-Type", "application/json")
 
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (s *Server) updateChat(w http.ResponseWriter, r *http.Request, chatID string) {
-	var req struct {
-		Title string `json:"title"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.sendError(w, "Invalid request body", "INVALID_REQUEST", http.StatusBadRequest)
-		return
-	}
-
-	if len(req.Title) > 200 {
-		s.sendError(w, "Title too long (max 200 characters)", "VALIDATION_ERROR", http.StatusBadRequest)
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	_, err := s.db.ExecContext(ctx,
-		"UPDATE chats SET title = ?, updated_at = ? WHERE id = ?",
-		req.Title, time.Now(), chatID,
-	)
+	ollamaResp, err := http.DefaultClient.Do(httpReq)
 	if err != nil {
-		log.Printf("Error updating chat: %v", err)
-		s.sendError(w, "Failed to update chat", "DB_ERROR", http.StatusInternalServerError)
+		log.Printf("Error calling Ollama: %v", err)
+		s.sendError(w, "Failed to connect to Ollama", "OLLAMA_ERROR", http.StatusServiceUnavailable)
+		return
+	}
+	defer ollamaResp.Body.Close()
+
+	if ollamaResp.StatusCode != http.StatusOK {
+		var errBody map[string]interface{}
+		json.NewDecoder(ollamaResp.Body).Decode(&errBody)
+		log.Printf("Ollama API returned error status %d: %v", ollamaResp.StatusCode, errBody)
+		s.sendError(w, fmt.Sprintf("Ollama API Error: %v", errBody["error"]), "OLLAMA_API_ERROR", http.StatusBadGateway)
 		return
 	}
 
+	// 4. Stream Ollama Response to Client and Collect Full Message
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"message": "Chat updated"})
+
+	reader := bufio.NewReader(ollamaResp.Body) // <-- Use bufio here
+	fullResponseContent := ""
+	
+	for {
+		line, err := reader.ReadBytes('\n')
+		if err != nil {
+			if err != io.EOF {
+				log.Printf("Error reading stream: %v", err)
+			}
+			break
+		}
+
+		// Write raw data to client immediately (for streaming)
+		w.Write(line)
+		w.(http.Flusher).Flush()
+
+		// Parse the line for collecting the full response
+		var chunk map[string]interface{}
+		if err := json.Unmarshal(line, &chunk); err == nil {
+			if msg, ok := chunk["message"].(map[string]interface{}); ok {
+				if content, ok := msg["content"].(string); ok {
+					fullResponseContent += content
+				}
+			} else if finalContent, ok := chunk["content"].(string); ok {
+				fullResponseContent += finalContent
+			}
+		}
+		
+		if chunk["done"] == true {
+			break
+		}
+	}
+
+	// 5. Save Model Response
+	if fullResponseContent != "" {
+		modelMsg := Message{
+			ID:      uuid.New().String(),
+			ChatID:  userMessage.ChatID,
+			Role:    "assistant",
+			Content: fullResponseContent,
+			CreatedAt: time.Now(),
+		}
+
+		_, err = s.db.Exec("INSERT INTO messages (id, chat_id, role, content) VALUES (?, ?, ?, ?)",
+			modelMsg.ID, modelMsg.ChatID, modelMsg.Role, modelMsg.Content)
+		if err != nil {
+			log.Printf("Warning: Could not save model message to DB: %v", err)
+		}
+	}
 }
 
-func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
+// --- Ollama Model Handlers ---
+
+func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
+	resp, err := http.Get(s.config.OllamaURL + "/api/tags")
+	if err != nil {
+		s.sendError(w, "Failed to connect to Ollama", "OLLAMA_ERROR", http.StatusServiceUnavailable)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		s.sendError(w, "Ollama returned non-200 status", "OLLAMA_API_ERROR", http.StatusBadGateway)
+		return
+	}
+
+	var ollamaResponse struct {
+		Models []struct {
+			Name string `json:"name"`
+			Size int64 `json:"size"`
+		} `json:"models"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&ollamaResponse); err != nil {
+		s.sendError(w, "Failed to decode Ollama response", "DECODE_ERROR", http.StatusInternalServerError)
+		return
+	}
+
+	// Respond with just the list of model names
+	modelNames := []string{}
+	for _, model := range ollamaResponse.Models {
+		modelNames = append(modelNames, model.Name)
+	}
+
+	s.sendJSON(w, modelNames, http.StatusOK)
+}
+
+func (s *Server) handlePullModel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
 		s.sendError(w, "Method not allowed", "METHOD_NOT_ALLOWED", http.StatusMethodNotAllowed)
 		return
 	}
 
-	var req struct {
-		ChatID  string   `json:"chat_id"`
-		Role    string   `json:"role"`
-		Content string   `json:"content"`
-		FileIDs []string `json:"file_ids"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.sendError(w, "Invalid request body", "INVALID_REQUEST", http.StatusBadRequest)
-		return
-	}
-
-	// Validate inputs
-	if req.Role != "user" && req.Role != "assistant" && req.Role != "system" {
-		s.sendError(w, "Invalid role", "VALIDATION_ERROR", http.StatusBadRequest)
-		return
-	}
-	if len(req.Content) > 50000 {
-		s.sendError(w, "Content too long (max 50000 characters)", "VALIDATION_ERROR", http.StatusBadRequest)
-		return
-	}
-
-	msgID := uuid.New().String()
-	now := time.Now()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	_, err := s.db.ExecContext(ctx,
-		"INSERT INTO messages (id, chat_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)",
-		msgID, req.ChatID, req.Role, req.Content, now,
-	)
-	if err != nil {
-		log.Printf("Error creating message: %v", err)
-		s.sendError(w, "Failed to create message", "DB_ERROR", http.StatusInternalServerError)
-		return
-	}
-
-	// Link files to message
-	for _, fileID := range req.FileIDs {
-		_, err := s.db.ExecContext(ctx, "UPDATE files SET message_id = ? WHERE id = ?", msgID, fileID)
-		if err != nil {
-			log.Printf("Error linking file %s to message: %v", fileID, err)
-		}
-	}
-
-	// Update chat timestamp
-	s.db.ExecContext(ctx, "UPDATE chats SET updated_at = ? WHERE id = ?", now, req.ChatID)
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"id": msgID})
-}
-
-func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
-		s.sendError(w, "Method not allowed", "METHOD_NOT_ALLOWED", http.StatusMethodNotAllowed)
-		return
-	}
-
-	if err := r.ParseMultipartForm(s.config.MaxUploadSize); err != nil {
-		s.sendError(w, "File too large", "FILE_TOO_LARGE", http.StatusBadRequest)
-		return
-	}
-
-	var uploadedFiles []File
-	files := r.MultipartForm.File["files"]
-
-	for _, fileHeader := range files {
-		// Validate file type
-		contentType := fileHeader.Header.Get("Content-Type")
-		if !allowedFileTypes[contentType] {
-			log.Printf("Rejected file type: %s", contentType)
-			continue
-		}
-
-		// Validate file size
-		if fileHeader.Size > 50<<20 { // 50MB per file
-			log.Printf("File too large: %d bytes", fileHeader.Size)
-			continue
-		}
-
-		file, err := fileHeader.Open()
-		if err != nil {
-			log.Printf("Error opening file: %v", err)
-			continue
-		}
-		defer file.Close()
-
-		fileID := uuid.New().String()
-		ext := filepath.Ext(fileHeader.Filename)
-		
-		// Sanitize extension
-		if len(ext) > 10 {
-			ext = ext[:10]
-		}
-		
-		filename := fileID + ext
-		filePath := filepath.Join(s.config.UploadDir, filename)
-
-		dst, err := os.Create(filePath)
-		if err != nil {
-			log.Printf("Error creating file: %v", err)
-			continue
-		}
-		defer dst.Close()
-
-		size, err := io.Copy(dst, file)
-		if err != nil {
-			log.Printf("Error copying file: %v", err)
-			os.Remove(filePath)
-			continue
-		}
-
-		fileRecord := File{
-			ID:       fileID,
-			Name:     fileHeader.Filename,
-			Path:     filePath,
-			MimeType: contentType,
-			Size:     size,
-		}
-
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_, err = s.db.ExecContext(ctx,
-			"INSERT INTO files (id, message_id, name, path, mime_type, size, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-			fileRecord.ID, "", fileRecord.Name, fileRecord.Path, fileRecord.MimeType, fileRecord.Size, time.Now(),
-		)
-		cancel()
-
-		if err != nil {
-			log.Printf("Error saving file record: %v", err)
-			os.Remove(filePath)
-			continue
-		}
-
-		uploadedFiles = append(uploadedFiles, fileRecord)
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(uploadedFiles)
-}
-
-func (s *Server) handleFileServe(w http.ResponseWriter, r *http.Request) {
-	fileID := strings.TrimPrefix(r.URL.Path, "/api/files/")
-
-	var filePath, mimeType string
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	err := s.db.QueryRowContext(ctx, "SELECT path, mime_type FROM files WHERE id = ?", fileID).Scan(&filePath, &mimeType)
-	if err != nil {
-		s.sendError(w, "File not found", "NOT_FOUND", http.StatusNotFound)
-		return
-	}
-
-	// Security: ensure file is within upload directory
-	absPath, err := filepath.Abs(filePath)
-	if err != nil || !strings.HasPrefix(absPath, filepath.Clean(s.config.UploadDir)) {
-		s.sendError(w, "Invalid file path", "INVALID_PATH", http.StatusForbidden)
-		return
-	}
-
-	w.Header().Set("Content-Type", mimeType)
-	http.ServeFile(w, r, filePath)
-}
-
-func (s *Server) handleGenerate(w http.ResponseWriter, r *http.Request) {
 	var req map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.sendError(w, "Invalid request body", "INVALID_REQUEST", http.StatusBadRequest)
@@ -831,202 +642,8 @@ func (s *Server) handleGenerate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	reqBody, _ := json.Marshal(req)
-	
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
 
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", s.config.OllamaURL+"/api/generate", bytes.NewBuffer(reqBody))
-	if err != nil {
-		s.sendError(w, "Failed to create request", "REQUEST_ERROR", http.StatusInternalServerError)
-		return
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(httpReq)
-	if err != nil {
-		log.Printf("Error calling Ollama: %v", err)
-		s.sendError(w, "Failed to connect to Ollama", "OLLAMA_ERROR", http.StatusServiceUnavailable)
-		return
-	}
-	defer resp.Body.Close()
-
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		s.sendError(w, "Streaming not supported", "STREAMING_ERROR", http.StatusInternalServerError)
-		return
-	}
-
-	io.Copy(w, resp.Body)
-	flusher.Flush()
-}
-
-func (s *Server) handleOllamaChat(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		ChatID  string                 `json:"chat_id"`
-		Model   string                 `json:"model"`
-		Message string                 `json:"message"`
-		FileIDs []string               `json:"file_ids"`
-		Options map[string]interface{} `json:"options"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.sendError(w, "Invalid request body", "INVALID_REQUEST", http.StatusBadRequest)
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	// Get chat history
-	rows, err := s.db.QueryContext(ctx,
-		"SELECT role, content FROM messages WHERE chat_id = ? ORDER BY created_at ASC",
-		req.ChatID,
-	)
-	if err != nil {
-		log.Printf("Error querying messages: %v", err)
-		s.sendError(w, "Failed to load history", "DB_ERROR", http.StatusInternalServerError)
-		return
-	}
-	defer rows.Close()
-
-	type OllamaMessage struct {
-		Role    string   `json:"role"`
-		Content string   `json:"content"`
-		Images  []string `json:"images,omitempty"`
-	}
-
-	var messages []OllamaMessage
-	for rows.Next() {
-		var msg OllamaMessage
-		rows.Scan(&msg.Role, &msg.Content)
-		messages = append(messages, msg)
-	}
-    
-    // --- Start: File Context Injection Logic ---
-    // Initialize currentMsg before the loop so we can attach images/content
-    currentMsg := OllamaMessage{
-		Role: "user",
-	}
-
-    var fileContext strings.Builder
-    
-	// Handle image files and gather text files
-	for _, fileID := range req.FileIDs {
-		var filePath, mimeType, name string
-		err := s.db.QueryRowContext(ctx, "SELECT name, path, mime_type FROM files WHERE id = ?", fileID).Scan(&name, &filePath, &mimeType)
-		if err != nil {
-			log.Printf("Error loading file %s: %v", fileID, err)
-			continue
-		}
-
-		if strings.HasPrefix(mimeType, "image/") {
-			data, err := os.ReadFile(filePath)
-			if err == nil {
-				encoded := base64.StdEncoding.EncodeToString(data)
-				currentMsg.Images = append(currentMsg.Images, encoded)
-			}
-		} else if strings.HasPrefix(mimeType, "text/") || mimeType == "application/pdf" {
-			// Read and include textual content
-			data, err := os.ReadFile(filePath)
-			if err == nil {
-				// Add a clear header for the model
-				fileContext.WriteString(fmt.Sprintf("\n--- START FILE: %s (%s) ---\n", name, mimeType))
-				fileContext.Write(data)
-				fileContext.WriteString(fmt.Sprintf("\n--- END FILE: %s ---\n", name))
-			}
-		}
-	}
-    // --- End: File Context Injection Logic ---
-
-	// Finalize content by prepending file context
-	currentMsg.Content = fileContext.String() + req.Message
-    
-	messages = append(messages, currentMsg)
-
-	type OllamaRequest struct {
-		Model    string                 `json:"model"`
-		Messages []OllamaMessage        `json:"messages"`
-		Stream   bool                   `json:"stream"`
-		Options  map[string]interface{} `json:"options,omitempty"`
-	}
-
-	ollamaReq := OllamaRequest{
-		Model:    req.Model,
-		Messages: messages,
-		Stream:   true,
-		Options:  req.Options,
-	}
-
-	reqBody, _ := json.Marshal(ollamaReq)
-	
-	chatCtx, chatCancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer chatCancel()
-
-	httpReq, err := http.NewRequestWithContext(chatCtx, "POST", s.config.OllamaURL+"/api/chat", bytes.NewBuffer(reqBody))
-	if err != nil {
-		s.sendError(w, "Failed to create request", "REQUEST_ERROR", http.StatusInternalServerError)
-		return
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(httpReq)
-	if err != nil {
-		log.Printf("Error calling Ollama: %v", err)
-		s.sendError(w, "Failed to connect to Ollama", "OLLAMA_ERROR", http.StatusServiceUnavailable)
-		return
-	}
-	defer resp.Body.Close()
-
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		s.sendError(w, "Streaming not supported", "STREAMING_ERROR", http.StatusInternalServerError)
-		return
-	}
-
-	io.Copy(w, resp.Body)
-	flusher.Flush()
-}
-
-func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	httpReq, err := http.NewRequestWithContext(ctx, "GET", s.config.OllamaURL+"/api/tags", nil)
-	if err != nil {
-		s.sendError(w, "Failed to create request", "REQUEST_ERROR", http.StatusInternalServerError)
-		return
-	}
-
-	resp, err := http.DefaultClient.Do(httpReq)
-	if err != nil {
-		log.Printf("Error calling Ollama: %v", err)
-		s.sendError(w, "Failed to connect to Ollama", "OLLAMA_ERROR", http.StatusServiceUnavailable)
-		return
-	}
-	defer resp.Body.Close()
-
-	w.Header().Set("Content-Type", "application/json")
-	io.Copy(w, resp.Body)
-}
-
-func (s *Server) handlePull(w http.ResponseWriter, r *http.Request) {
-	var req map[string]interface{}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.sendError(w, "Invalid request body", "INVALID_REQUEST", http.StatusBadRequest)
-		return
-	}
-
-	reqBody, _ := json.Marshal(req)
-	
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", s.config.OllamaURL+"/api/pull", bytes.NewBuffer(reqBody))
@@ -1044,11 +661,27 @@ func (s *Server) handlePull(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
+	// Stream the response from Ollama directly to the client
 	w.Header().Set("Content-Type", "text/event-stream")
-	io.Copy(w, resp.Body)
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(resp.StatusCode)
+
+	if resp.StatusCode == http.StatusOK {
+		// Use io.Copy to stream the body for pull progress
+		io.Copy(w, resp.Body)
+	} else {
+		// Handle non-200 responses by sending the error back
+		io.Copy(w, resp.Body)
+	}
 }
 
-func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		s.sendError(w, "Method not allowed", "METHOD_NOT_ALLOWED", http.StatusMethodNotAllowed)
+		return
+	}
+
 	var req map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.sendError(w, "Invalid request body", "INVALID_REQUEST", http.StatusBadRequest)
@@ -1085,15 +718,11 @@ func (s *Server) serveHTML(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	http.ServeFile(w, r, "./index.html")
-}
-
-func (s *Server) serveCSS(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/css; charset=utf-8")
-	http.ServeFile(w, r, "./style.css")
-}
-
-func (s *Server) serveJS(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
-	http.ServeFile(w, r, "./script.js")
+	
+	content, err := os.ReadFile("index.html")
+	if err != nil {
+		http.Error(w, "Could not read index.html", http.StatusInternalServerError)
+		return
+	}
+	w.Write(content)
 }
