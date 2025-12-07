@@ -183,3 +183,116 @@ The **Model Management** section is crucial for tailoring your LLM experience to
         * **For Creative Tasks (e.g., suggesting architecture ideas):** Set **Temperature high (0.7 - 1.0)** for more diverse and creative output.
         * **For Factual Tasks (e.g., generating precise code):** Set **Temperature low (0.1 - 0.4)** to reduce hallucination and ensure the output is deterministic and accurate.
     * **Model Rotation:** Keep a rotation of models: a small, fast model (like **Mistral** or **Phi**) for quick docs lookups and a large, capable model (like a 70B **Llama** variant) for challenging or highly nuanced code generation tasks.
+
+Local Device Output:
+ File: main.go | Type: text/plain; charset=utf-8 | Model Used: llama3.1:8b
+Extracted Text (LLM Input)
+
+                
+                    Prompt: Please summarize the following document and list three key takeaways.
+
+
+                    package main
+
+import (
+	"bufio" // <-- FIXED: Added missing import for streaming
+	"bytes"
+	"context"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"os"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/google/uuid"
+	_ "github.com/mattn/go-sqlite3"
+)
+
+type Config struct {
+	Port           string
+	OllamaURL      string
+	DatabasePath   string
+	UploadDir      string
+	MaxUploadSize  int64
+	AllowedOrigins []string
+}
+
+type Server struct {
+	db          *sql.DB
+	config      *Config
+	sessions    map[string]*Session
+	sessionsMux sync.RWMutex
+	rateLimiter *RateLimiter
+}
+
+type Session struct {
+	ID        string
+	UserID    string
+	CreatedAt time.Time
+	LastSeen  time.Time
+}
+
+type Chat struct {
+	ID        string    `json:"id"`
+	SessionID string    `json:"session_id"`
+	Title     string    `json:"title"`
+	Model     string    `json:"model"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type Message struct {
+	ID      string `json:"id"`
+	ChatID  string `json...
+(Truncated for display)
+                
+            
+Ollama Response
+
+                The provided code is a complex web server implementation written in Go. Here's an overview of the code structure and main functions:
+
+**Server Structure**
+
+The server is structured around several key components:
+
+1. **Main Server Function**: `main()` sets up the server configuration, initializes the database, and starts the server listening on port 8080.
+2. **Request Handlers**: Each request handler (e.g., `/models`, `/pull`) is a separate function that responds to specific HTTP requests.
+3. **Database Interactions**: The server interacts with a database using the `database` package (not shown in this code snippet).
+4. **Ollama API Integration**: The server integrates with an Ollama API (a large language model) for tasks like generating responses and pulling models.
+
+**Key Functions**
+
+Here are some key functions in the provided code:
+
+1. `handleListModels()`: Handles requests to list available models from the Ollama API.
+2. `handlePullModel()`: Handles requests to pull a specific model from the Ollama API.
+3. `handleDeleteModel()`: Handles requests to delete a model from the Ollama API.
+4. `handleListOllamaModels()`: Not shown in this code snippet, but likely handles requests to list available models for an Ollama instance.
+5. `serveHTML()`: Serves static HTML content for the root URL (`"/"`).
+
+**Notable Code Snippets**
+
+Here are some notable code snippets:
+
+1. The use of `http.NewServeMux()` and `http.HandleFunc()` to register request handlers for each path.
+2. The use of `context.WithTimeout()` to set a timeout for requests that take too long.
+3. The use of `http.DefaultClient` to make HTTP requests to the Ollama API.
+
+**Advice**
+
+To improve this code, consider:
+
+1. Extracting database interactions into a separate package or module for better organization and reusability.
+2. Implementing error handling mechanisms to ensure that errors are properly propagated and logged.
+3. Adding documentation for the request handlers to make it easier for others to understand how the server works.
+4. Considering using a more robust logging mechanism (e.g., Logrus) instead of the built-in `log` package.
+5. Testing the server thoroughly using tools like Go's built-in testing framework or external testing libraries.
+
+Overall, this is a well-structured and organized codebase, but it could benefit from some improvements in terms of error handling, documentation, and testing.
+            
+
