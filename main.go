@@ -456,8 +456,73 @@ document.addEventListener("DOMContentLoaded", () => {
 <hr>
 
 <form action="/upload" method="post" enctype="multipart/form-data">
-<label>Upload Files or Folder:</label>
-<input type="file" name="file_upload" webkitdirectory directory multiple />
+
+<label>Upload Files:</label>
+<!-- Normal file picker -->
+<input type="file" name="file_upload" multiple />
+
+<label>Or Upload a Folder:</label>
+<!-- Folder picker -->
+<input type="file" name="file_upload" webkitdirectory mozdirectory directory />
+
+<!-- Drag & drop area -->
+<div id="drop-area" 
+     style="border:2px dashed var(--border); padding:20px; margin-top:10px; border-radius:10px; text-align:center;">
+  Drag & drop files or folders here
+</div>
+
+<script>
+// Attach dropped files/folders to the hidden folder input
+document.addEventListener("DOMContentLoaded", () => {
+  const dropArea = document.getElementById("drop-area");
+
+  dropArea.addEventListener("dragover", e => {
+    e.preventDefault();
+    dropArea.style.borderColor = "var(--accent)";
+  });
+
+  dropArea.addEventListener("dragleave", () => {
+    dropArea.style.borderColor = "var(--border)";
+  });
+
+  dropArea.addEventListener("drop", e => {
+    e.preventDefault();
+    dropArea.style.borderColor = "var(--border)";
+
+    const dt = e.dataTransfer;
+    const items = dt.items;
+
+    // Convert DataTransferItemList → File[]
+    const files = [];
+    function traverse(item, path = "") {
+      if (item.kind === "file") {
+        item.getAsFile().webkitRelativePath = path + item.getAsFile().name;
+        files.push(item.getAsFile());
+      } else if (item.kind === "directory") {
+        const dirReader = item.createReader();
+        dirReader.readEntries(entries => {
+          for (const entry of entries) {
+            traverse(entry, path + item.name + "/");
+          }
+        });
+      }
+    }
+
+    for (let i = 0; i < items.length; i++) {
+      const entry = items[i].webkitGetAsEntry();
+      if (entry) traverse(entry);
+    }
+
+    // Build a DataTransfer for the form
+    const dtNew = new DataTransfer();
+    files.forEach(f => dtNew.items.add(f));
+
+    // Assign dropped items to BOTH inputs
+    document.querySelector("input[type=file][multiple]").files = dtNew.files;
+    document.querySelector("input[webkitdirectory]").files = dtNew.files;
+  });
+});
+</script>
 
 <label>Your Prompt:</label>
 <textarea name="user_prompt"></textarea>
