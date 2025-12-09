@@ -1,4 +1,12 @@
-Looking at your Ollama Go Web UI, it's a solid foundation! Here are some recommended features and improvements that would enhance its functionality and user experience:
+
+A — Full Chat UI (ChatGPT-like)
+B — Upload UI (file → text → chat)
+C — Enhanced Model Admin (sizes, params, GPU)
+D — GPU Monitor (Intel Arc A770)
+E — Logs UI improvements
+F — Save/Load conversation sessions
+G — Model benchmark/test page
+H — Something else
 
 ## Core Functionality Enhancements
 
