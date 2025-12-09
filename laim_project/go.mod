@@ -1,9 +1,13 @@
-module main.go
+module laim
 
-go 1.25.4
+go 1.24.1
 
 require (
-	code.sajari.com/docconv v1.3.8 // indirect
+	code.sajari.com/docconv v1.3.8
+	github.com/ollama/ollama v0.13.2
+)
+
+require (
 	github.com/JalfResi/justext v0.0.0-20170829062021-c0282dea7198 // indirect
 	github.com/PuerkitoBio/goquery v1.5.1 // indirect
 	github.com/advancedlogic/GoOse v0.0.0-20191112112754-e742535969c1 // indirect
@@ -17,7 +21,6 @@ require (
 	github.com/levigross/exp-html v0.0.0-20120902181939-8df60c69a8f5 // indirect
 	github.com/mattn/go-runewidth v0.0.14 // indirect
 	github.com/olekukonko/tablewriter v0.0.5 // indirect
-	github.com/ollama/ollama v0.13.1 // indirect
 	github.com/otiai10/gosseract/v2 v2.2.4 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/richardlehane/mscfb v1.0.3 // indirect

@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -49,6 +50,7 @@ func getSessionID(w http.ResponseWriter, r *http.Request) string {
 		HttpOnly: false,
 	})
 
+	log.Printf("[SESSION] Created new session: %s", id)
 	return id
 }
 
@@ -64,7 +66,7 @@ func isBinary(b []byte) bool {
 }
 
 /* ---------------------------------------------------------
-   FILE PROCESSING
+   FILE PROCESSING WITH LOGGING
 --------------------------------------------------------- */
 
 type OllamaInput struct {
@@ -75,13 +77,19 @@ type OllamaInput struct {
 }
 
 func ProcessSingleFile(file multipart.File, header *multipart.FileHeader) (OllamaInput, error) {
+
+	log.Printf("[UPLOAD] Processing file: %s (size=%d)", header.Filename, header.Size)
+
 	all, err := io.ReadAll(file)
 	if err != nil {
+		log.Printf("[ERROR] Failed reading file %s: %v", header.Filename, err)
 		return OllamaInput{}, err
 	}
 
 	mime := http.DetectContentType(all)
 	ext := strings.ToLower(filepath.Ext(header.Filename))
+
+	log.Printf("[UPLOAD] Detected MIME=%s EXT=%s", mime, ext)
 
 	out := OllamaInput{
 		Filename: header.Filename,
@@ -90,25 +98,30 @@ func ProcessSingleFile(file multipart.File, header *multipart.FileHeader) (Ollam
 
 	// Images
 	if strings.HasPrefix(mime, "image/") {
+		log.Printf("[UPLOAD] %s recognized as image (%d bytes)", header.Filename, len(all))
 		out.ImageBytes = [][]byte{all}
 		return out, nil
 	}
 
-	// Complex docs
+	// Complex docs using docconv
 	switch ext {
 	case ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".pptx", ".ppt", ".odt", ".rtf", ".html":
+		log.Printf("[UPLOAD] Sending %s to docconv", header.Filename)
 		res, err := docconv.Convert(strings.NewReader(string(all)), ext, false)
 		if err == nil {
+			log.Printf("[UPLOAD] docconv succeeded for %s (%d chars extracted)", header.Filename, len(res.Body))
 			out.TextContent = res.Body
 			return out, nil
 		}
-		log.Printf("docconv failed: %v", err)
+		log.Printf("[ERROR] docconv failed for %s: %v", header.Filename, err)
 	}
 
-	// Raw text fallback
+	// Fallback raw text
 	if isBinary(all) {
+		log.Printf("[UPLOAD] File %s appears binary", header.Filename)
 		out.TextContent = "[WARNING: binary file]\n" + string(all)
 	} else {
+		log.Printf("[UPLOAD] Treating %s as raw text (%d chars)", header.Filename, len(all))
 		out.TextContent = string(all)
 	}
 
@@ -142,7 +155,7 @@ func renderTemplate(w http.ResponseWriter, data PageData) {
 }
 
 /* ---------------------------------------------------------
-   OLLAMA CALL
+   OLLAMA CALL WITH LOGGING
 --------------------------------------------------------- */
 
 func callOllama(model string, msgs []api.Message) (string, error) {
@@ -154,6 +167,8 @@ func callOllama(model string, msgs []api.Message) (string, error) {
 		Stream:   boolPtr(true),
 	}
 
+	log.Printf("[OLLAMA] Model=%s | Sending prompt (%d messages)", model, len(msgs))
+
 	var out strings.Builder
 
 	err := client.Chat(context.Background(), req, func(resp api.ChatResponse) error {
@@ -161,6 +176,7 @@ func callOllama(model string, msgs []api.Message) (string, error) {
 		return nil
 	})
 
+	log.Printf("[OLLAMA] Response size=%d chars", out.Len())
 	return out.String(), err
 }
 
@@ -172,21 +188,25 @@ func listLocalModels() ([]string, error) {
 	client := api.NewClient(&url.URL{Scheme: "http", Host: "localhost:11434"}, http.DefaultClient)
 	res, err := client.List(context.Background())
 	if err != nil {
+		log.Printf("[ERROR] Failed listing models: %v", err)
 		return nil, err
 	}
 	var names []string
 	for _, m := range res.Models {
 		names = append(names, m.Name)
 	}
+	log.Printf("[MODELS] Found %d models", len(names))
 	return names, nil
 }
 
 /* ---------------------------------------------------------
-   HANDLERS
+   HANDLERS WITH LOGGING
 --------------------------------------------------------- */
 
 func homeHandler(w http.ResponseWriter, r *http.Request) {
 	sessionID := getSessionID(w, r)
+	log.Printf("[HOME] Session=%s opened homepage", sessionID)
+
 	models, _ := listLocalModels()
 
 	sessionHistory.Lock()
@@ -205,7 +225,10 @@ func chatHandler(w http.ResponseWriter, r *http.Request) {
 	msg := r.FormValue("user_prompt")
 	model := r.FormValue("model_select")
 
+	log.Printf("[CHAT] Session=%s Model=%s PromptSize=%d", sessionID, model, len(msg))
+
 	if strings.TrimSpace(msg) == "" {
+		log.Printf("[CHAT] Empty message — ignored")
 		http.Redirect(w, r, "/", 303)
 		return
 	}
@@ -218,6 +241,7 @@ func chatHandler(w http.ResponseWriter, r *http.Request) {
 
 	output, err := callOllama(model, h)
 	if err != nil {
+		log.Printf("[ERROR] Ollama call failed: %v", err)
 		renderTemplate(w, PageData{Error: err.Error()})
 		return
 	}
@@ -228,14 +252,18 @@ func chatHandler(w http.ResponseWriter, r *http.Request) {
 	sessionHistory.H[sessionID] = h
 	sessionHistory.Unlock()
 
+	log.Printf("[CHAT] AI returned %d chars", len(output))
+
 	http.Redirect(w, r, "/", 303)
 }
 
 func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	sessionID := getSessionID(w, r)
+	log.Printf("[UPLOAD] Start upload for session=%s", sessionID)
 
 	err := r.ParseMultipartForm(100 << 20)
 	if err != nil {
+		log.Printf("[ERROR] ParseMultipartForm: %v", err)
 		renderTemplate(w, PageData{Error: err.Error()})
 		return
 	}
@@ -244,7 +272,10 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	model := r.FormValue("model_select")
 
 	files := r.MultipartForm.File["file_upload"]
+	log.Printf("[UPLOAD] %d files detected", len(files))
+
 	if len(files) == 0 {
+		log.Printf("[UPLOAD] No files found in request")
 		renderTemplate(w, PageData{Error: "No files uploaded."})
 		return
 	}
@@ -254,11 +285,14 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	var names []string
 
 	for _, fh := range files {
+		log.Printf("[UPLOAD] Handling: %s (%d bytes)", fh.Filename, fh.Size)
+
 		f, _ := fh.Open()
 		data, err := ProcessSingleFile(f, fh)
 		f.Close()
 
 		if err != nil {
+			log.Printf("[ERROR] Processing file %s: %v", fh.Filename, err)
 			continue
 		}
 
@@ -279,6 +313,8 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	sessionHistory.Unlock()
 
 	fullPrompt := fmt.Sprintf("%s\n\n[FILES]\n%s", userPrompt, text.String())
+	log.Printf("[UPLOAD] Sending combined prompt (%d chars, %d images)", len(fullPrompt), len(images))
+
 	h = append(h, api.Message{
 		Role:    "user",
 		Content: fullPrompt,
@@ -287,6 +323,7 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 
 	output, err := callOllama(model, h)
 	if err != nil {
+		log.Printf("[ERROR] Ollama upload call failed: %v", err)
 		renderTemplate(w, PageData{Error: err.Error()})
 		return
 	}
@@ -296,6 +333,8 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	sessionHistory.Lock()
 	sessionHistory.H[sessionID] = h
 	sessionHistory.Unlock()
+
+	log.Printf("[UPLOAD] Ollama returned %d chars", len(output))
 
 	models, _ := listLocalModels()
 
@@ -313,16 +352,26 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 --------------------------------------------------------- */
 
 func main() {
+
+	// ENABLE LOG FILE
+	logFile, err := os.OpenFile("server.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		log.Fatal("Failed to open log file:", err)
+	}
+	log.SetOutput(logFile)
+	log.Println("=== Server starting ===")
+
 	http.HandleFunc("/", homeHandler)
 	http.HandleFunc("/upload", uploadHandler)
 	http.HandleFunc("/chat", chatHandler)
 
 	fmt.Println("Server running at http://localhost:8080")
+	log.Println("[SERVER] Running at http://localhost:8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
 /* ---------------------------------------------------------
-   HTML TEMPLATE
+   HTML TEMPLATE (UNCHANGED)
 --------------------------------------------------------- */
 
 const htmlTemplate = `

@@ -1,0 +1,525 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+:root {
+    --primary-color: #2563eb;
+    --primary-hover: #1d4ed8;
+    --success-color: #10b981;
+    --warning-color: #f59e0b;
+    --danger-color: #dc2626;
+    --danger-hover: #b91c1c;
+    --info-color: #3b82f6;
+    --bg-primary: #0f172a;
+    --bg-secondary: #1e293b;
+    --bg-tertiary: #334155;
+    --text-primary: #f1f5f9;
+    --text-secondary: #cbd5e1;
+    --border-color: #475569;
+    --shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    line-height: 1.6;
+}
+
+/* 1. Main Layout Containers */
+.app-container {
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+}
+
+.main-content {
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column; /* CRITICAL: Stacks chat header, window, and input vertically */
+    overflow: hidden; /* Prevents main content scroll from affecting the whole page */
+}
+
+/* 2. Sidebar */
+.sidebar {
+    width: 300px;
+    min-width: 250px;
+    background: var(--bg-secondary);
+    border-right: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    padding: 1rem;
+    overflow-y: auto;
+}
+
+.sidebar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.sidebar-header h2 {
+    color: var(--primary-color);
+}
+
+.sidebar-content {
+    flex-grow: 1;
+    overflow-y: auto;
+}
+
+.sidebar-footer {
+    padding-top: 1rem;
+    border-top: 1px solid var(--border-color);
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+/* Chat List */
+.chat-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.chat-item {
+    padding: 0.5rem;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.2s;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.chat-item:hover {
+    background: var(--bg-tertiary);
+}
+
+.chat-item.active {
+    background: var(--primary-color);
+    color: var(--text-primary);
+}
+
+.chat-date {
+    font-size: 0.75rem;
+    opacity: 0.8;
+    margin-left: 1rem;
+}
+
+
+/* 3. Main Chat/Model Interface */
+.chat-header {
+    padding: 1rem;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg-secondary);
+    flex-shrink: 0;
+}
+
+.chat-title-area {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.controls {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.main-interface {
+    display: none;
+    flex-direction: column;
+    flex-grow: 1;
+    overflow: hidden;
+}
+
+.main-interface.active {
+    display: flex;
+}
+
+/* 4. Chat Window and Messages */
+.chat-window {
+    flex-grow: 1; /* CRITICAL: Takes up all available space */
+    overflow-y: auto; /* Allows only the messages to scroll */
+    padding: 1rem;
+}
+
+.chat-loading-message {
+    text-align: center;
+    padding-top: 2rem;
+    color: var(--text-secondary);
+}
+
+.message {
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 1.5rem;
+    max-width: 80%;
+}
+
+.message.user {
+    align-self: flex-end;
+    align-items: flex-end;
+    margin-left: auto;
+}
+
+.message.assistant {
+    align-self: flex-start;
+    align-items: flex-start;
+    margin-right: auto;
+}
+
+.message-meta {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.2rem;
+}
+
+.message-content {
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.message.user .message-content {
+    background: var(--primary-color);
+    color: var(--text-primary);
+    border-bottom-right-radius: 0;
+}
+
+.message.assistant .message-content {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border-bottom-left-radius: 0;
+}
+
+/* Code blocks and inline code */
+.message-content pre {
+    background: #000;
+    padding: 0.75rem;
+    border-radius: 4px;
+    overflow-x: auto;
+    margin: 0.5rem 0;
+}
+
+.message-content code {
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 0.9em;
+}
+
+.message-content pre code {
+    display: block;
+    padding: 0;
+}
+
+/* 5. Input Area and File Previews */
+
+/* File Preview Container (New) */
+.file-preview-container {
+    flex-shrink: 0; /* CRITICAL: Prevents it from being squeezed */
+    padding: 0.5rem 1rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    border-top: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    max-height: 150px;
+    overflow-y: auto;
+}
+
+.file-preview-item {
+    display: flex;
+    align-items: center;
+    background: var(--bg-tertiary);
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.file-preview-item button {
+    margin-left: 0.5rem;
+    background: var(--danger-color);
+    color: var(--text-primary);
+    border: none;
+    padding: 0 0.4rem;
+    border-radius: 50%;
+    cursor: pointer;
+    line-height: 1;
+    font-weight: bold;
+}
+
+.file-thumbnail {
+    width: 30px;
+    height: 30px;
+    object-fit: cover;
+    margin-right: 0.5rem;
+    border-radius: 3px;
+}
+
+/* Chat Input Area (CRITICAL FIX) */
+.chat-input-area {
+    flex-shrink: 0; /* CRITICAL: Prevents it from being squeezed */
+    display: flex;
+    align-items: center;
+    padding: 1rem;
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border-color);
+    gap: 0.5rem;
+}
+
+#userInput {
+    flex-grow: 1; /* CRITICAL: Allows the input field to take available space */
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 1rem;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+#userInput:focus {
+    border-color: var(--primary-color);
+}
+
+
+/* 6. Buttons, Inputs, Selects */
+.btn-primary, .btn-secondary, .btn-danger {
+    padding: 0.5rem 1rem;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: background 0.2s;
+    white-space: nowrap;
+}
+
+.btn-primary {
+    background: var(--primary-color);
+    color: var(--text-primary);
+}
+
+.btn-primary:hover {
+    background: var(--primary-hover);
+}
+
+.btn-secondary {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+
+.btn-secondary:hover {
+    background: var(--border-color);
+}
+
+.btn-danger {
+    background: var(--danger-color);
+    color: var(--text-primary);
+}
+
+.btn-danger:hover {
+    background: var(--danger-hover);
+}
+
+.btn-icon {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 1.25rem;
+    color: var(--text-secondary);
+    padding: 0.25rem;
+    line-height: 1;
+}
+
+.btn-icon:hover {
+    color: var(--text-primary);
+}
+
+.control-select, .control-input {
+    padding: 0.5rem 0.75rem;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+}
+
+
+/* 7. Modal */
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    display: none; /* Hidden by default */
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.modal-content {
+    background: var(--bg-secondary);
+    padding: 2rem;
+    border-radius: 8px;
+    width: 90%;
+    max-width: 400px;
+    box-shadow: var(--shadow);
+}
+
+.modal-content h3 {
+    margin-bottom: 1rem;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 0.5rem;
+}
+
+#titleInput {
+    width: 100%;
+    margin-bottom: 1rem;
+}
+
+.modal-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+}
+
+
+/* 8. Toast Notifications */
+#toastContainer {
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    z-index: 10000;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.toast {
+    padding: 1rem 1.5rem;
+    border-radius: 6px;
+    color: white;
+    font-weight: 600;
+    box-shadow: var(--shadow);
+    opacity: 1;
+    transition: opacity 0.3s ease-out, transform 0.3s ease-out;
+    transform: translateX(0);
+}
+
+.toast.hide {
+    opacity: 0;
+    transform: translateX(100%);
+}
+
+.toast-info { background-color: var(--info-color); }
+.toast-success { background-color: var(--success-color); }
+.toast-warning { background-color: var(--warning-color); }
+.toast-danger { background-color: var(--danger-color); }
+
+
+/* 9. Loading Spinner */
+.loading-spinner {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 2rem;
+}
+
+.loading-spinner::after {
+    content: '';
+    width: 40px;
+    height: 40px;
+    border: 4px solid var(--border-color);
+    border-top-color: var(--primary-color);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* 10. File Message Previews (in chat history) */
+.file-message-thumbnail {
+    max-width: 150px;
+    max-height: 150px;
+    border-radius: 4px;
+    object-fit: contain;
+    margin-bottom: 0.5rem;
+    display: block;
+}
+
+.file-message-name {
+    display: inline-block;
+    padding: 0.25rem 0.5rem;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    font-size: 0.9em;
+    margin-right: 0.5rem;
+    margin-bottom: 0.5rem;
+    color: var(--text-primary);
+}
+
+.message-files {
+    padding-bottom: 0.5rem;
+}
+
+/* 11. Scrollbar */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--bg-primary);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--text-secondary);
+}
+
+/* 12. Mobile Responsive */
+@media (max-width: 768px) {
+    .sidebar {
+        position: fixed;
+        left: 0;
+        top: 0;
+        height: 100%;
+        z-index: 100;
+        transform: translateX(-100%);
+        transition: transform 0.3s ease-in-out;
+    }
+
+    .sidebar.open {
+        transform: translateX(0);
+    }
+
+    .message {
+        max-width: 95%;
+    }
+
+    .controls {
+        flex-direction: column;
+        width: 100%;
+    }
+}
