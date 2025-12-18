@@ -15,3 +15,15 @@
 2025/12/09 11:53:45.669188 [INFO] Incoming GET /favicon.ico
 2025/12/09 11:53:45.669213 [HOME] Session=1765281225487469227 opened homepage
 2025/12/09 11:53:45.670308 [INFO] Request finished in 1 ms
+2025/12/18 18:34:47.456784 [INFO] === Server starting ===
+2025/12/18 18:34:47.456826 [INFO] Logging to server.log
+2025/12/18 18:34:51.215056 [INFO] Incoming GET /
+2025/12/18 18:34:51.215086 [HOME] Session=1766081983076391755 opened homepage
+2025/12/18 18:34:51.216320 [INFO] Request finished in 1 ms
+2025/12/18 18:34:51.225781 [INFO] Incoming GET /models
+2025/12/18 18:34:51.226256 [INFO] Request finished in 0 ms
+2025/12/18 18:34:51.226959 [INFO] Incoming GET /favicon.ico
+2025/12/18 18:34:51.226977 [HOME] Session=1766081983076391755 opened homepage
+2025/12/18 18:34:51.227368 [INFO] Request finished in 0 ms
+2025/12/18 18:35:21.687211 [INFO] Incoming POST /chat
+2025/12/18 18:35:21.782429 [INFO] Request finished in 95 ms
