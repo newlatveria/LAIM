@@ -2,33 +2,26 @@ package handlers
 
 import (
 	"embed"
-	"embed"
 	"net/http"
 
 	"webolla/internal/config"
 	"webolla/internal/ollama"
 )
 
-// go:embed web/*
+//go:embed web/*
 var webFS embed.FS
 
 type Handlers struct {
+	cfg      *config.Config
+	client   *ollama.Client
 	registry *cancelRegistry
-
-	registry *cancelRegistry
-
-	registry *cancelRegistry
-
-	cfg    *config.Config
-	client *ollama.Client
 }
 
-func New(cfg *config.Config) *Handlers {
+func New(cfg *config.Config, client *ollama.Client) *Handlers {
 	return &Handlers{
+		cfg:      cfg,
+		client:   client,
 		registry: newRegistry(),
-
-		cfg:    cfg,
-		client: ollama.New(cfg),
 	}
 }
 

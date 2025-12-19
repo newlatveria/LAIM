@@ -6,18 +6,22 @@ import (
 
 	"webolla/internal/config"
 	"webolla/internal/handlers"
+	"webolla/internal/ollama"
 )
 
 func main() {
 	cfg := config.Load()
-	h := handlers.New(cfg)
 
-	http.HandleFunc("/", h.ServeHTML)
-	http.HandleFunc("/api/ollama-action", h.OllamaAction)
-	http.HandleFunc("/api/models", h.ListModels)
-	http.HandleFunc("/api/status", h.Status)
-	http.HandleFunc("/api/cancel", h.Cancel)
+	client := ollama.NewClient(cfg)
+	h := handlers.New(cfg, client)
 
-	log.Printf("Server listening on :%s", cfg.Port)
-	log.Fatal(http.ListenAndServe(":"+cfg.Port, nil))
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", h.ServeHTML)
+	mux.HandleFunc("/api/action", h.OllamaAction)
+	mux.HandleFunc("/api/cancel", h.Cancel)
+	mux.HandleFunc("/api/status", h.Status)
+	mux.HandleFunc("/api/models", h.ListModels)
+
+	log.Printf("🚀 WebOlla listening on :%s", cfg.Port)
+	log.Fatal(http.ListenAndServe(":"+cfg.Port, mux))
 }

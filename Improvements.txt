@@ -6,7 +6,8 @@ D — GPU Monitor (Intel Arc A770)
 E — Logs UI improvements
 F — Save/Load conversation sessions
 G — Model benchmark/test page
-H — Something else
+H — unload a model
+J - 
 
 ## Core Functionality Enhancements
 
