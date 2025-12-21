@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LAIM - Local AI Manager</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar with Chat History -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <h2>LAIM</h2>
+                <button id="newChatBtn" class="btn-primary">+ New Chat</button>
+            </div>
+            
+            <div class="sidebar-content">
+                <div class="chat-list" id="chatList">
+                    <!-- Chat history will be loaded here -->
+                </div>
+            </div>
+            
+            <div class="sidebar-footer">
+                <button id="toggleSidebar" class="btn-icon">☰</button>
+                <span class="session-info" id="sessionInfo"></span>
+            </div>
+        </aside>
+
+        <!-- Main Chat Area -->
+        <main class="main-content">
+            <div class="chat-header">
+                <div class="chat-title-area">
+                    <button id="mobileSidebarToggle" class="btn-icon mobile-only">☰</button>
+                    <h1 id="chatTitle">New Chat</h1>
+                    <button id="editTitleBtn" class="btn-icon">✏️</button>
+                </div>
+                
+                <div class="controls">
+                    <select id="apiType" class="control-select">
+                        <option value="chat">Chat</option>
+                        <option value="generate">Generate</option>
+                        <option value="models">Manage Models</option>
+                    </select>
+                    
+                    <select id="modelSelect" class="control-select">
+                        <option value="">Loading models...</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Chat Interface -->
+            <div id="chatInterface" class="interface-panel active">
+                <div class="messages-container" id="messagesContainer">
+                    <div class="welcome-message">
+                        <h2>Welcome to LAIM</h2>
+                        <p>Start a conversation with your local AI models</p>
+                    </div>
+                </div>
+
+                <div class="input-area">
+                    <div class="file-preview" id="filePreview"></div>
+                    
+                    <div class="system-prompt-container">
+                        <label for="systemPrompt">System Prompt (Optional):</label>
+                        <textarea id="systemPrompt" placeholder="Set the AI's role and behavior..." rows="2"></textarea>
+                    </div>
+                    
+                    <div class="input-wrapper">
+                        <button id="attachBtn" class="btn-icon" title="Attach files">📎</button>
+                        <input type="file" id="fileInput" multiple style="display: none;">
+                        
+                        <textarea 
+                            id="userInput" 
+                            placeholder="Type your message..." 
+                            rows="3"
+                        ></textarea>
+                        
+                        <button id="sendBtn" class="btn-send">Send</button>
+                    </div>
+
+                    <div class="parameter-controls">
+                        <div class="param-group">
+                            <label>Temperature: <span id="tempValue">0.7</span></label>
+                            <input type="range" id="temperature" min="0" max="2" step="0.1" value="0.7">
+                        </div>
+                        <div class="param-group">
+                            <label>Top P: <span id="topPValue">0.9</span></label>
+                            <input type="range" id="topP" min="0" max="1" step="0.05" value="0.9">
+                        </div>
+                        <div class="param-group">
+                            <label>Max Tokens: <span id="maxTokensValue">2048</span></label>
+                            <input type="range" id="maxTokens" min="128" max="8192" step="128" value="2048">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Generate Interface -->
+            <div id="generateInterface" class="interface-panel">
+                <div class="generate-container">
+                    <textarea 
+                        id="generatePrompt" 
+                        placeholder="Enter your prompt for text generation..." 
+                        rows="5"
+                    ></textarea>
+                    <button id="generateBtn" class="btn-primary">Generate Response</button>
+                    <div id="generateOutput" class="output-box"></div>
+                </div>
+            </div>
+
+            <!-- Model Management Interface -->
+            <div id="modelsInterface" class="interface-panel">
+                <div class="models-container">
+                    <div class="models-section">
+                        <h3>Installed Models</h3>
+                        <button id="refreshModels" class="btn-secondary">Refresh List</button>
+                        <div id="installedModels" class="models-list"></div>
+                    </div>
+
+                    <div class="models-section">
+                        <h3>Pull New Model</h3>
+                        <div class="model-pull-form">
+                            <input type="text" id="modelName" placeholder="e.g., llama3, mistral, codellama">
+                            <button id="pullBtn" class="btn-primary">Pull Model</button>
+                        </div>
+                        <div id="pullProgress" class="progress-output"></div>
+                    </div>
+
+                    <div class="models-section">
+                        <h3>Delete Model</h3>
+                        <select id="deleteModelSelect" class="control-select">
+                            <option value="">Select model to delete</option>
+                        </select>
+                        <button id="deleteBtn" class="btn-danger">Delete Selected Model</button>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modal for editing chat title -->
+    <div id="titleModal" class="modal">
+        <div class="modal-content">
+            <h3>Edit Chat Title</h3>
+            <input type="text" id="titleInput" placeholder="Enter chat title">
+            <div class="modal-buttons">
+                <button id="saveTitleBtn" class="btn-primary">Save</button>
+                <button id="cancelTitleBtn" class="btn-secondary">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
