@@ -1,22 +1,23 @@
 package main
 
 import (
-	"log"
-	"net/http"
+    "log"
+    "net/http"
 
-	"webolla/internal/config"
-	"webolla/internal/handlers"
+    "webolla/internal/config"
+    "webolla/internal/handlers"
 )
 
 func main() {
-	cfg := config.Load()
-	h := handlers.New(cfg)
+    cfg := config.Load()
+    h := handlers.New(cfg)
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", h.Index)
-	mux.HandleFunc("/api/models", h.Models)
-	mux.HandleFunc("/api/upload", h.Upload)
+    mux := http.NewServeMux()
+    mux.HandleFunc("/", h.Index)
+    mux.HandleFunc("/api/models", h.Models)
+    mux.HandleFunc("/api/generate", h.Generate)
+    mux.HandleFunc("/api/upload", h.Upload)
 
-	log.Println("Listening on :" + cfg.Port)
-	log.Fatal(http.ListenAndServe(":"+cfg.Port, mux))
+    log.Println("Listening on :" + cfg.Port)
+    log.Fatal(http.ListenAndServe(":"+cfg.Port, mux))
 }
