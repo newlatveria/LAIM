@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -31,6 +32,10 @@ type TelemetryData struct {
 }
 
 func New(cfg *config.Config) *Handlers {
+	// Ensure data directories exist on startup
+	os.MkdirAll(filepath.Join(cfg.UploadDir), 0755)
+	os.MkdirAll("data/rag", 0755)
+	
 	return &Handlers{cfg: cfg, client: &http.Client{Timeout: 120 * time.Second}}
 }
 
@@ -224,7 +229,7 @@ func (h *Handlers) Generate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	reqBody["stream"] = false
+	reqBody["stream"] = true
 	jsonData, _ := json.Marshal(reqBody)
 
 	resp, err := h.client.Post(
@@ -239,21 +244,26 @@ func (h *Handlers) Generate(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
-	var res map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
-		w.WriteHeader(500)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Ollama returned invalid data"})
+	// Stream the response directly to the client
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
 		return
 	}
 
-	if count, ok := res["eval_count"].(float64); ok {
-		if dur, ok := res["eval_duration"].(float64); ok && dur > 0 {
-			res["tps"] = count / (dur / 1e9)
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue
 		}
+		fmt.Fprintf(w, "%s\n", line)
+		flusher.Flush()
 	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(res)
 }
 
 func (h *Handlers) Models(w http.ResponseWriter, r *http.Request) {
@@ -279,10 +289,6 @@ func (h *Handlers) Upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Ensure directories exist
-	_ = os.MkdirAll("data/uploads", 0755)
-	_ = os.MkdirAll("data/rag", 0755)
-
 	// Load existing RAG index (if any)
 	var chunks []RagChunk
 	if existing, err := loadIndex(); err == nil {
@@ -291,7 +297,7 @@ func (h *Handlers) Upload(w http.ResponseWriter, r *http.Request) {
 
 	// Save files + index .txt files
 	for _, f := range files {
-		dstPath := filepath.Join("data/uploads", filepath.Base(f.Filename))
+		dstPath := filepath.Join(h.cfg.UploadDir, filepath.Base(f.Filename))
 
 		src, err := f.Open()
 		if err != nil {
@@ -308,8 +314,15 @@ func (h *Handlers) Upload(w http.ResponseWriter, r *http.Request) {
 		src.Close()
 		dst.Close()
 
-		// ---- RAG indexing for .txt files ----
-		if strings.HasSuffix(strings.ToLower(f.Filename), ".txt") {
+		// ---- RAG indexing for text files ----
+		lower := strings.ToLower(f.Filename)
+		isTextFile := strings.HasSuffix(lower, ".txt") ||
+			strings.HasSuffix(lower, ".md") ||
+			strings.HasSuffix(lower, ".log") ||
+			f.Filename == "LICENSE" ||
+			f.Filename == "README"
+		
+		if isTextFile {
 			data, err := os.ReadFile(dstPath)
 			if err != nil {
 				continue
@@ -337,3 +350,103 @@ func (h *Handlers) Upload(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ReindexAll scans uploads directory and indexes all .txt files
+func (h *Handlers) ReindexAll(w http.ResponseWriter, r *http.Request) {
+	var chunks []RagChunk
+
+	// Log the directory we're checking
+	uploadDir := h.cfg.UploadDir
+	
+	entries, err := os.ReadDir(uploadDir)
+	if err != nil {
+		// Try alternate directory
+		uploadDir = "uploads"
+		entries, err = os.ReadDir(uploadDir)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error": "uploads directory not found in data/uploads or uploads/",
+				"tried": h.cfg.UploadDir,
+			})
+			return
+		}
+	}
+
+	indexed := 0
+	filesList := []string{}
+	txtFiles := []string{}
+	errors := []string{}
+	
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		filename := entry.Name()
+		filesList = append(filesList, filename)
+		
+		// Check if it's a text file - either .txt extension or common text files
+		lower := strings.ToLower(filename)
+		isTextFile := strings.HasSuffix(lower, ".txt") ||
+			strings.HasSuffix(lower, ".md") ||
+			strings.HasSuffix(lower, ".log") ||
+			filename == "LICENSE" ||
+			filename == "README" ||
+			strings.HasPrefix(filename, ".bash")
+		
+		if !isTextFile {
+			continue
+		}
+
+		txtFiles = append(txtFiles, filename)
+		filePath := filepath.Join(uploadDir, filename)
+		
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("Read error %s: %v", filename, err))
+			continue
+		}
+
+		textChunks := chunkText(string(data))
+		errors = append(errors, fmt.Sprintf("File %s: %d bytes, %d chunks", filename, len(data), len(textChunks)))
+		
+		for i, chunk := range textChunks {
+			emb, err := embed(h.cfg, chunk)
+			if err != nil {
+				errors = append(errors, fmt.Sprintf("Embed error chunk %d of %s: %v", i, filename, err))
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusInternalServerError)
+				json.NewEncoder(w).Encode(map[string]any{
+					"error": "embedding failed - is nomic-embed-text model available?",
+					"detail": err.Error(),
+					"debug": errors,
+				})
+				return
+			}
+
+			chunks = append(chunks, RagChunk{
+				Text:      chunk,
+				Embedding: emb,
+			})
+		}
+		indexed++
+	}
+
+	if err := saveIndex(chunks); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to save index: " + err.Error()})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"upload_dir":    uploadDir,
+		"files_found":   filesList,
+		"txt_files":     txtFiles,
+		"files_indexed": indexed,
+		"total_chunks":  len(chunks),
+		"debug":         errors,
+	})
+}

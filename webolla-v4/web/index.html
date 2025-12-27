@@ -6,7 +6,7 @@
         :root { --bg: #0b0e14; --panel: #161b22; --accent: #58a6ff; --green: #3fb950; --yellow: #d29922; --red: #f85149; }
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica; background: var(--bg); color: #c9d1d9; margin: 0; display: flex; height: 100vh; }
         
-        .sidebar { width: 300px; background: var(--panel); border-right: 1px solid #30363d; padding: 20px; display: flex; flex-direction: column; gap: 20px; }
+        .sidebar { width: 320px; background: var(--panel); border-right: 1px solid #30363d; padding: 20px; display: flex; flex-direction: column; gap: 15px; overflow-y: auto; }
         .main { flex-grow: 1; display: flex; flex-direction: column; padding: 20px; gap: 20px; }
         
         .stat-box { background: #0d1117; border: 1px solid #30363d; padding: 12px; border-radius: 6px; }
@@ -19,21 +19,73 @@
         button:hover { background: #2ea043; }
         
         .low { color: var(--green); } .mid { color: var(--yellow); } .high { color: var(--red); }
+        
+        .rag-btn { background: #8250df; }
+        .rag-btn:hover { background: #9a6dd7; }
+        
+        .control-group { background: #0d1117; border: 1px solid #30363d; padding: 12px; border-radius: 6px; }
+        .control-group label { display: block; font-size: 12px; color: #8b949e; margin-bottom: 5px; }
+        .control-group input[type="range"] { width: 100%; }
+        .control-group .value-display { float: right; color: var(--accent); font-weight: bold; }
+        select, input[type="number"] { width: 100%; padding: 8px; background: #0d1117; color: white; border: 1px solid #30363d; border-radius: 6px; }
+        
+        .collapsible { cursor: pointer; user-select: none; padding: 8px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; margin-bottom: 5px; }
+        .collapsible:hover { background: #161b22; }
+        .collapsible-content { display: none; padding: 10px 0; }
+        .collapsible-content.active { display: block; }
     </style>
 </head>
 <body>
     <div class="sidebar">
         <h2>WebOlla <small style="font-size:0.5em">v4.9</small></h2>
+        
         <div class="stat-box">GPU: <span id="gpu-name" class="stat-val">---</span></div>
         <div class="stat-box">Load: <span id="gpu-usage" class="stat-val">0%</span></div>
         <div class="stat-box">VRAM: <span id="vram" class="stat-val" style="color:var(--accent)">0.0 GB</span></div>
         <div class="stat-box">Speed: <span id="tps" class="stat-val" style="color:#bc8cff">0.00 t/s</span></div>
+        
         <hr style="border:0; border-top:1px solid #30363d; width:100%">
-        <select id="task" onchange="filterModels()" style="padding:8px; background:#0d1117; color:white; border:1px solid #30363d;">
+        
+        <select id="task" onchange="filterModels()">
             <option value="all">All Models</option>
             <option value="code">Coding</option>
         </select>
-        <select id="models" style="padding:8px; background:#0d1117; color:white; border:1px solid #30363d;"></select>
+        <select id="models"></select>
+        
+        <div class="collapsible" onclick="toggleCollapse(this)">
+            ⚙️ Model Parameters
+        </div>
+        <div class="collapsible-content">
+            <div class="control-group">
+                <label>Temperature <span class="value-display" id="temp-val">0.7</span></label>
+                <input type="range" id="temperature" min="0" max="2" step="0.1" value="0.7" oninput="updateValue('temp-val', this.value)">
+            </div>
+            
+            <div class="control-group">
+                <label>Top P <span class="value-display" id="topp-val">0.9</span></label>
+                <input type="range" id="top_p" min="0" max="1" step="0.05" value="0.9" oninput="updateValue('topp-val', this.value)">
+            </div>
+            
+            <div class="control-group">
+                <label>Top K <span class="value-display" id="topk-val">40</span></label>
+                <input type="range" id="top_k" min="1" max="100" step="1" value="40" oninput="updateValue('topk-val', this.value)">
+            </div>
+            
+            <div class="control-group">
+                <label>Max Tokens</label>
+                <input type="number" id="num_predict" min="1" max="8192" value="2048">
+            </div>
+            
+            <div class="control-group">
+                <label>Repeat Penalty <span class="value-display" id="repeat-val">1.1</span></label>
+                <input type="range" id="repeat_penalty" min="0.5" max="2" step="0.1" value="1.1" oninput="updateValue('repeat-val', this.value)">
+            </div>
+            
+            <div class="control-group">
+                <label>Context Length</label>
+                <input type="number" id="num_ctx" min="512" max="32768" value="2048" step="512">
+            </div>
+        </div>
     </div>
 
     <div class="main">
@@ -42,7 +94,9 @@
             <textarea id="prompt" rows="3" placeholder="Send a message..."></textarea>
             <div style="display:flex; gap:10px;">
                 <button id="genBtn" onclick="generate()" style="flex-grow:1;">Generate</button>
+                <button id="ragBtn" onclick="generateRAG()" class="rag-btn" style="flex-grow:1;">RAG Query</button>
                 <button onclick="document.getElementById('f').click()" style="background:#30363d;">Upload</button>
+                <button onclick="reindexAll()" style="background:#58a6ff;">Reindex</button>
                 <input type="file" id="f" hidden multiple onchange="upload()">
             </div>
         </div>
@@ -50,6 +104,27 @@
 
     <script>
     let models = [];
+    
+    function toggleCollapse(el) {
+        const content = el.nextElementSibling;
+        content.classList.toggle('active');
+    }
+    
+    function updateValue(id, val) {
+        document.getElementById(id).textContent = val;
+    }
+    
+    function getModelParams() {
+        return {
+            temperature: parseFloat(document.getElementById('temperature').value),
+            top_p: parseFloat(document.getElementById('top_p').value),
+            top_k: parseInt(document.getElementById('top_k').value),
+            num_predict: parseInt(document.getElementById('num_predict').value),
+            repeat_penalty: parseFloat(document.getElementById('repeat_penalty').value),
+            num_ctx: parseInt(document.getElementById('num_ctx').value)
+        };
+    }
+    
     async function init() {
         try {
             const res = await fetch("/api/models");
@@ -85,31 +160,161 @@
     async function generate() {
         const btn = document.getElementById("genBtn");
         const out = document.getElementById("output");
-        btn.disabled = true; out.textContent = "Thinking...";
+        btn.disabled = true; 
+        out.textContent = "";
+        
         try {
+            const params = getModelParams();
             const res = await fetch("/api/generate", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ model: document.getElementById("models").value, prompt: document.getElementById("prompt").value })
+                body: JSON.stringify({ 
+                    model: document.getElementById("models").value, 
+                    prompt: document.getElementById("prompt").value,
+                    ...params
+                })
             });
-            const text = await res.text();
-            try {
-                const d = JSON.parse(text);
-                out.textContent = d.response || d.error || "No response";
-                document.getElementById("tps").textContent = (d.tps || 0).toFixed(2) + " t/s";
-            } catch(e) {
-                out.textContent = "Raw response error: " + text;
+            
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let fullText = "";
+            let lastData = null;
+            
+            while (true) {
+                const {done, value} = await reader.read();
+                if (done) break;
+                
+                const chunk = decoder.decode(value);
+                const lines = chunk.split('\n');
+                
+                for (const line of lines) {
+                    if (!line.trim()) continue;
+                    try {
+                        const data = JSON.parse(line);
+                        if (data.response) {
+                            fullText += data.response;
+                            out.textContent = fullText;
+                        }
+                        lastData = data;
+                    } catch(e) {}
+                }
             }
-        } catch(e) { out.textContent = "Network Error: " + e.message; }
-        finally { btn.disabled = false; }
+            
+            if (lastData && lastData.eval_count && lastData.eval_duration) {
+                const tps = lastData.eval_count / (lastData.eval_duration / 1e9);
+                document.getElementById("tps").textContent = tps.toFixed(2) + " t/s";
+            }
+        } catch(e) { 
+            out.textContent = "Network Error: " + e.message; 
+        } finally { 
+            btn.disabled = false; 
+        }
+    }
+
+    async function generateRAG() {
+        const btn = document.getElementById("ragBtn");
+        const out = document.getElementById("output");
+        btn.disabled = true; 
+        out.textContent = "";
+        
+        try {
+            const params = getModelParams();
+            const res = await fetch("/api/rag", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ 
+                    model: document.getElementById("models").value, 
+                    prompt: document.getElementById("prompt").value,
+                    ...params
+                })
+            });
+            
+            if (!res.ok) {
+                const err = await res.text();
+                out.textContent = "RAG Error: " + err;
+                btn.disabled = false;
+                return;
+            }
+            
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let fullText = "";
+            let lastData = null;
+            
+            while (true) {
+                const {done, value} = await reader.read();
+                if (done) break;
+                
+                const chunk = decoder.decode(value);
+                const lines = chunk.split('\n');
+                
+                for (const line of lines) {
+                    if (!line.trim()) continue;
+                    try {
+                        const data = JSON.parse(line);
+                        if (data.response) {
+                            fullText += data.response;
+                            out.textContent = fullText;
+                        }
+                        lastData = data;
+                    } catch(e) {}
+                }
+            }
+            
+            if (lastData && lastData.eval_count && lastData.eval_duration) {
+                const tps = lastData.eval_count / (lastData.eval_duration / 1e9);
+                document.getElementById("tps").textContent = tps.toFixed(2) + " t/s";
+            }
+        } catch(e) { 
+            out.textContent = "Network Error: " + e.message; 
+        } finally { 
+            btn.disabled = false; 
+        }
     }
 
     async function upload() {
         const fd = new FormData();
         for (const f of document.getElementById("f").files) fd.append("files", f);
-        await fetch("/api/upload", { method: "POST", body: fd });
-        alert("Files uploaded");
+        
+        try {
+            const res = await fetch("/api/upload", { method: "POST", body: fd });
+            const data = await res.json();
+            alert(`Files uploaded: ${data.uploaded}\nChunks indexed: ${data.indexed}`);
+        } catch(e) {
+            alert("Upload failed: " + e.message);
+        }
     }
+
+    async function reindexAll() {
+        if (!confirm("Reindex all .txt files in uploads directory?")) return;
+        
+        try {
+            const res = await fetch("/api/reindex", { method: "POST" });
+            const text = await res.text();
+            console.log("Raw response:", text);
+            
+            try {
+                const data = JSON.parse(text);
+                if (data.error) {
+                    alert(`Error: ${data.error}\n${data.detail || ''}\nDebug: ${JSON.stringify(data.debug, null, 2)}`);
+                } else {
+                    alert(`Reindexing complete!
+Directory: ${data.upload_dir}
+All files: ${data.files_found.join(', ')}
+TXT files: ${data.txt_files.join(', ')}
+Files indexed: ${data.files_indexed}
+Total chunks: ${data.total_chunks}
+
+Debug: ${data.debug.join('\n')}`);
+                }
+            } catch(e) {
+                alert("Reindex response: " + text);
+            }
+        } catch(e) {
+            alert("Reindex failed: " + e.message);
+        }
+    }
+
     init();
     </script>
 </body>
