@@ -12,6 +12,7 @@ func main() {
 	mux.HandleFunc("/", h.Index)
 	mux.HandleFunc("/api/models", h.Models)
 	mux.HandleFunc("/api/generate", h.Generate)
+	mux.HandleFunc("/api/rag", h.Rag)
 	mux.HandleFunc("/api/upload", h.Upload)
 	mux.HandleFunc("/api/telemetry", h.Telemetry)
 	log.Printf("WebOlla running at http://localhost:%s\n", cfg.Port)

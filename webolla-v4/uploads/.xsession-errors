@@ -1,0 +1,55 @@
+discover_other_daemon: 1discover_other_daemon: 1discover_other_daemon: 1/usr/bin/cinnamon-launcher:56: DeprecationWarning: This process (pid=2083) is multi-threaded, use of fork() may lead to deadlocks in the child.
+  self.cinnamon_pid = os.fork()
+
+(csd-media-keys:1963): csd-media-keys-WARNING **: 13:18:45.668: Unable to get default sink
+
+(csd-media-keys:1963): csd-media-keys-WARNING **: 13:18:45.730: Unable to get default source
+Cjs-Message: 13:18:46.172: JS LOG: About to start Cinnamon (X11 backend)
+Cjs-Message: 13:18:46.272: JS LOG: [LookingGlass/info] Cinnamon.AppSystem.get_default() started in 0 ms
+Cjs-Message: 13:18:46.274: JS LOG: [LookingGlass/info] loading user theme: /usr/share/themes/Mint-Y-Dark-Aqua/cinnamon/cinnamon.css
+Cjs-Message: 13:18:46.283: JS LOG: [LookingGlass/info] added icon directory: /usr/share/themes/Mint-Y-Dark-Aqua/cinnamon
+Cjs-Message: 13:18:46.290: JS LOG: [LookingGlass/info] Ignoring panel definition for nonexistent monitor: 2:1:bottom
+Cjs-Message: 13:18:46.363: JS LOG: [LookingGlass/info] NetworkManager agent: enabled
+Cjs-Message: 13:18:46.365: JS LOG: [LookingGlass/info] Polkit agent: enabled
+Cjs-Message: 13:18:46.366: JS LOG: [LookingGlass/info] SSH agent: enabled
+Cjs-Message: 13:18:46.392: JS LOG: [LookingGlass/info] loaded at Thu Dec 11 2025 13:18:46 GMT+0000 (Greenwich Mean Time)
+Cjs-Message: 13:18:46.392: JS LOG: Cinnamon started at Thu Dec 11 2025 13:18:46 GMT+0000 (Greenwich Mean Time)
+Cjs-Message: 13:18:46.399: JS LOG: [LookingGlass/info] ExtensionSystem started in 0 ms
+Cjs-Message: 13:18:46.399: JS LOG: [LookingGlass/info] DeskletManager started in 0 ms
+Cjs-Message: 13:18:46.399: JS LOG: [LookingGlass/info] SearchProviderManager started in 0 ms
+Cjs-Message: 13:18:46.522: JS LOG: [LookingGlass/info] Loaded applet removable-drives@cinnamon.org in 24 ms
+Cjs-Message: 13:18:46.527: JS LOG: [LookingGlass/info] Loaded applet nightlight@cinnamon.org in 5 ms
+vmware-user: could not open /proc/fs/vmblock/dev
+Cjs-Message: 13:18:46.597: JS LOG: [LookingGlass/info] Loaded applet calendar@cinnamon.org in 70 ms
+Cjs-Message: 13:18:46.606: JS LOG: [LookingGlass/info] Loaded applet xapp-status@cinnamon.org in 9 ms
+Cjs-Message: 13:18:46.608: JS LOG: [LookingGlass/info] Role locked: notifications
+Cjs-Message: 13:18:46.612: JS LOG: [LookingGlass/info] Loaded applet notifications@cinnamon.org in 6 ms
+Cjs-Message: 13:18:46.625: JS LOG: [LookingGlass/info] Loaded applet printers@cinnamon.org in 13 ms
+Cjs-Message: 13:18:46.635: JS LOG: [LookingGlass/info] Role locked: tray
+Cjs-Message: 13:18:46.641: JS LOG: [LookingGlass/info] Loaded applet systray@cinnamon.org in 16 ms
+Cjs-Message: 13:18:46.645: JS LOG: [LookingGlass/info] Loaded applet show-desktop@cinnamon.org in 4 ms
+Cjs-Message: 13:18:46.683: JS LOG: [LookingGlass/info] Loaded applet keyboard@cinnamon.org in 38 ms
+Cjs-Message: 13:18:46.696: JS LOG: [LookingGlass/info] Loaded applet power@cinnamon.org in 13 ms
+Cjs-Message: 13:18:46.716: JS LOG: [LookingGlass/info] Loaded applet sound@cinnamon.org in 20 ms
+Cjs-Message: 13:18:46.726: JS LOG: [LookingGlass/info] Loaded applet network@cinnamon.org in 10 ms
+Cjs-Message: 13:18:46.772: JS LOG: [LookingGlass/info] Loaded applet menu@cinnamon.org in 46 ms
+Cjs-Message: 13:18:46.772: JS LOG: [LookingGlass/info] Loaded applet menu@cinnamon.org in 0 ms
+Cjs-Message: 13:18:46.783: JS LOG: Unknown network device type, is 32
+Cjs-Message: 13:18:46.803: JS LOG: [LookingGlass/info] Role locked: panellauncher
+Nemo-Message: 13:18:46.813: nemo-desktop: session is cinnamon, establishing proxy
+Cjs-Message: 13:18:46.833: JS LOG: [LookingGlass/info] Loaded applet CassiaWindowList@klangman in 60 ms
+Cjs-Message: 13:18:46.834: JS LOG: [LookingGlass/info] Loaded applet CassiaWindowList@klangman in 1 ms
+Cjs-Message: 13:18:46.834: JS LOG: [LookingGlass/info] AppletManager started in 441 ms
+Cjs-Message: 13:18:46.835: JS LOG: [LookingGlass/info] Cinnamon took 663 ms to start
+blueman-applet 13.18.46 WARNING  PluginManager:153 __load_plugin: Not loading DhcpClient because its conflict has higher priority
+blueman-applet 13.18.46 WARNING  PluginManager:153 __load_plugin: Not loading PPPSupport because its conflict has higher priority
+Cjs-Message: 13:18:47.062: JS LOG: [LookingGlass/info] Adding XAppStatusIcon: blueman (:1.66/org/x/StatusIcon/Icon)
+Cjs-Message: 13:18:47.066: JS LOG: [LookingGlass/info] GPU offload supported: false
+Cjs-Message: 13:18:47.346: JS LOG: calendar@cinnamon.org: Calendar events supported.
+Cjs-Message: 13:18:50.873: JS LOG: Enabling WindowAttentionHandler
+Cjs-Message: 13:22:10.187: JS LOG: [LookingGlass/info] Updating user
+Cjs-Message: 13:23:57.472: JS LOG: [LookingGlass/info] Updating user
+/usr/share/cinnamon/cinnamon-settings/cinnamon-settings.py:458: DeprecationWarning: Gtk.Window.set_wmclass is deprecated
+  self.window.set_wmclass(wm_class, wm_class)
+
+(csd-print-notifications:1970): GLib-CRITICAL **: 15:57:22.926: Source ID 3 was not found when attempting to remove it

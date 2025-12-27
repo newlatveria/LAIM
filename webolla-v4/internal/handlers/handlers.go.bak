@@ -280,8 +280,8 @@ func (h *Handlers) Upload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Ensure directories exist
-	_ = os.MkdirAll("data/uploads", 0755)
-	_ = os.MkdirAll("data/rag", 0755)
+	_ = os.MkdirAll("uploads", 0755)
+	_ = os.MkdirAll("rag", 0755)
 
 	// Load existing RAG index (if any)
 	var chunks []RagChunk
@@ -291,7 +291,7 @@ func (h *Handlers) Upload(w http.ResponseWriter, r *http.Request) {
 
 	// Save files + index .txt files
 	for _, f := range files {
-		dstPath := filepath.Join("data/uploads", filepath.Base(f.Filename))
+		dstPath := filepath.Join("uploads", filepath.Base(f.Filename))
 
 		src, err := f.Open()
 		if err != nil {
