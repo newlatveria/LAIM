@@ -4,47 +4,69 @@
     <title>WebOlla v4.9 Ironclad</title>
     <style>
         :root { --bg: #0b0e14; --panel: #161b22; --accent: #58a6ff; --green: #3fb950; --yellow: #d29922; --red: #f85149; }
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica; background: var(--bg); color: #c9d1d9; margin: 0; display: flex; height: 100vh; }
+        * { box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica; background: var(--bg); color: #c9d1d9; margin: 0; display: flex; height: 100vh; overflow: hidden; }
         
-        .sidebar { width: 320px; background: var(--panel); border-right: 1px solid #30363d; padding: 20px; display: flex; flex-direction: column; gap: 15px; overflow-y: auto; }
-        .main { flex-grow: 1; display: flex; flex-direction: column; padding: 20px; gap: 20px; }
+        .sidebar { width: 300px; background: var(--panel); border-right: 1px solid #30363d; padding: 15px; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
+        .main { flex: 1; display: flex; flex-direction: column; padding: 20px; gap: 15px; overflow: hidden; }
         
-        .stat-box { background: #0d1117; border: 1px solid #30363d; padding: 12px; border-radius: 6px; }
-        .stat-val { font-size: 1.2em; font-weight: bold; display: block; margin-top: 5px; }
+        .stat-box { background: #0d1117; border: 1px solid #30363d; padding: 10px; border-radius: 6px; font-size: 13px; }
+        .stat-val { font-size: 1.1em; font-weight: bold; display: block; margin-top: 3px; }
         
-        #output { flex-grow: 1; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 20px; overflow-y: auto; white-space: pre-wrap; font-family: monospace; color: #e6edf3; }
+        #output { flex: 1; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 15px; overflow-y: auto; font-family: monospace; color: #e6edf3; font-size: 13px; }
         
-        textarea { width: 100%; background: #0d1117; color: white; border: 1px solid #30363d; border-radius: 6px; padding: 12px; font-size: 14px; }
-        button { background: #238636; color: white; border: none; padding: 10px; border-radius: 6px; cursor: pointer; font-weight: bold; }
+        textarea { width: 100%; background: #0d1117; color: white; border: 1px solid #30363d; border-radius: 6px; padding: 10px; font-size: 14px; resize: vertical; }
+        button { background: #238636; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 13px; }
         button:hover { background: #2ea043; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
         
         .low { color: var(--green); } .mid { color: var(--yellow); } .high { color: var(--red); }
-        
         .rag-btn { background: #8250df; }
         .rag-btn:hover { background: #9a6dd7; }
         
-        .control-group { background: #0d1117; border: 1px solid #30363d; padding: 12px; border-radius: 6px; }
-        .control-group label { display: block; font-size: 12px; color: #8b949e; margin-bottom: 5px; }
+        .control-group { background: #0d1117; border: 1px solid #30363d; padding: 8px; border-radius: 6px; margin-bottom: 8px; }
+        .control-group label { display: block; font-size: 11px; color: #8b949e; margin-bottom: 4px; }
         .control-group input[type="range"] { width: 100%; }
         .control-group .value-display { float: right; color: var(--accent); font-weight: bold; }
-        select, input[type="number"] { width: 100%; padding: 8px; background: #0d1117; color: white; border: 1px solid #30363d; border-radius: 6px; }
+        select, input[type="number"] { width: 100%; padding: 6px; background: #0d1117; color: white; border: 1px solid #30363d; border-radius: 6px; font-size: 13px; }
         
-        .collapsible { cursor: pointer; user-select: none; padding: 8px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; margin-bottom: 5px; }
+        .collapsible { cursor: pointer; user-select: none; padding: 6px 8px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; font-size: 13px; }
         .collapsible:hover { background: #161b22; }
-        .collapsible-content { display: none; padding: 10px 0; }
-        .collapsible-content.active { display: block; }
+        .collapsible-content { max-height: 0; overflow: hidden; transition: max-height 0.3s ease; }
+        .collapsible-content.active { max-height: 500px; padding-top: 8px; }
+        
+        .status-indicator { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+        .status-online { background: var(--green); box-shadow: 0 0 6px var(--green); }
+        .status-offline { background: var(--red); box-shadow: 0 0 6px var(--red); }
+        
+        .chat-message { margin-bottom: 12px; padding: 8px; border-radius: 6px; white-space: pre-wrap; }
+        .chat-user { background: #1c2128; border-left: 3px solid var(--accent); }
+        .chat-assistant { background: #0d1117; border-left: 3px solid var(--green); }
+        .chat-role { font-weight: bold; font-size: 10px; color: #8b949e; margin-bottom: 4px; text-transform: uppercase; }
+        
+        .session-item { padding: 6px; background: #0d1117; border: 1px solid #30363d; border-radius: 4px; margin-bottom: 4px; cursor: pointer; font-size: 12px; display: flex; justify-content: space-between; align-items: center; }
+        .session-item:hover { background: #161b22; }
+        .session-item.active { border-color: var(--accent); }
+        .session-item button { padding: 2px 6px; font-size: 12px; }
     </style>
 </head>
 <body>
     <div class="sidebar">
-        <h2>WebOlla <small style="font-size:0.5em">v4.9</small></h2>
+        <h3 style="margin: 0 0 10px 0;">WebOlla <small style="font-size:0.6em">v4.9</small></h3>
         
-        <div class="stat-box">GPU: <span id="gpu-name" class="stat-val">---</span></div>
-        <div class="stat-box">Load: <span id="gpu-usage" class="stat-val">0%</span></div>
-        <div class="stat-box">VRAM: <span id="vram" class="stat-val" style="color:var(--accent)">0.0 GB</span></div>
-        <div class="stat-box">Speed: <span id="tps" class="stat-val" style="color:#bc8cff">0.00 t/s</span></div>
+        <div class="stat-box">
+            <span class="status-indicator" id="ollama-status"></span>
+            Ollama: <span id="ollama-text" style="font-weight: bold;">...</span>
+        </div>
         
-        <hr style="border:0; border-top:1px solid #30363d; width:100%">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+            <div class="stat-box">GPU<br><span id="gpu-name" class="stat-val" style="font-size: 0.9em;">---</span></div>
+            <div class="stat-box">Load<br><span id="gpu-usage" class="stat-val">0%</span></div>
+            <div class="stat-box">VRAM<br><span id="vram" class="stat-val" style="color:var(--accent)">0.0</span></div>
+            <div class="stat-box">Speed<br><span id="tps" class="stat-val" style="color:#bc8cff">0.00</span></div>
+        </div>
+        
+        <hr style="border:0; border-top:1px solid #30363d; margin: 5px 0;">
         
         <select id="task" onchange="filterModels()">
             <option value="all">All Models</option>
@@ -52,62 +74,54 @@
         </select>
         <select id="models"></select>
         
-        <div class="collapsible" onclick="toggleCollapse(this)">
-            ⚙️ Model Parameters
+        <div class="collapsible" onclick="toggleCollapse(this)">💬 Chat Sessions</div>
+        <div class="collapsible-content">
+            <button onclick="newSession()" style="width:100%; margin-bottom:6px; background:#30363d;">New</button>
+            <div id="sessions-list"></div>
         </div>
+        
+        <div class="collapsible" onclick="toggleCollapse(this)">⚙️ Parameters</div>
         <div class="collapsible-content">
             <div class="control-group">
-                <label>Temperature <span class="value-display" id="temp-val">0.7</span></label>
+                <label>Temp <span class="value-display" id="temp-val">0.7</span></label>
                 <input type="range" id="temperature" min="0" max="2" step="0.1" value="0.7" oninput="updateValue('temp-val', this.value)">
             </div>
-            
             <div class="control-group">
                 <label>Top P <span class="value-display" id="topp-val">0.9</span></label>
                 <input type="range" id="top_p" min="0" max="1" step="0.05" value="0.9" oninput="updateValue('topp-val', this.value)">
             </div>
-            
             <div class="control-group">
                 <label>Top K <span class="value-display" id="topk-val">40</span></label>
                 <input type="range" id="top_k" min="1" max="100" step="1" value="40" oninput="updateValue('topk-val', this.value)">
             </div>
-            
             <div class="control-group">
                 <label>Max Tokens</label>
                 <input type="number" id="num_predict" min="1" max="8192" value="2048">
-            </div>
-            
-            <div class="control-group">
-                <label>Repeat Penalty <span class="value-display" id="repeat-val">1.1</span></label>
-                <input type="range" id="repeat_penalty" min="0.5" max="2" step="0.1" value="1.1" oninput="updateValue('repeat-val', this.value)">
-            </div>
-            
-            <div class="control-group">
-                <label>Context Length</label>
-                <input type="number" id="num_ctx" min="512" max="32768" value="2048" step="512">
             </div>
         </div>
     </div>
 
     <div class="main">
         <div id="output">System ready. Select a model and start chatting.</div>
-        <div style="display:flex; flex-direction:column; gap:10px;">
-            <textarea id="prompt" rows="3" placeholder="Send a message..."></textarea>
-            <div style="display:flex; gap:10px;">
-                <button id="genBtn" onclick="generate()" style="flex-grow:1;">Generate</button>
-                <button id="ragBtn" onclick="generateRAG()" class="rag-btn" style="flex-grow:1;">RAG Query</button>
-                <button onclick="document.getElementById('f').click()" style="background:#30363d;">Upload</button>
-                <button onclick="reindexAll()" style="background:#58a6ff;">Reindex</button>
-                <input type="file" id="f" hidden multiple onchange="upload()">
-            </div>
+        <textarea id="prompt" rows="3" placeholder="Send a message..."></textarea>
+        <div style="display:flex; gap:8px; flex-wrap: wrap;">
+            <button id="genBtn" onclick="generate()" style="flex:1;">Generate</button>
+            <button id="ragBtn" onclick="generateRAG()" class="rag-btn" style="flex:1;">RAG</button>
+            <button onclick="clearChat()" style="background:#d29922;">Clear</button>
+            <button onclick="document.getElementById('f').click()" style="background:#30363d;">Upload</button>
+            <button onclick="reindexAll()" style="background:#58a6ff;">Reindex</button>
+            <input type="file" id="f" hidden multiple onchange="upload()">
         </div>
     </div>
 
     <script>
     let models = [];
+    let currentSession = null;
+    let sessions = JSON.parse(localStorage.getItem('webolla_sessions') || '{}');
+    let chatHistory = [];
     
     function toggleCollapse(el) {
-        const content = el.nextElementSibling;
-        content.classList.toggle('active');
+        el.nextElementSibling.classList.toggle('active');
     }
     
     function updateValue(id, val) {
@@ -119,10 +133,96 @@
             temperature: parseFloat(document.getElementById('temperature').value),
             top_p: parseFloat(document.getElementById('top_p').value),
             top_k: parseInt(document.getElementById('top_k').value),
-            num_predict: parseInt(document.getElementById('num_predict').value),
-            repeat_penalty: parseFloat(document.getElementById('repeat_penalty').value),
-            num_ctx: parseInt(document.getElementById('num_ctx').value)
+            num_predict: parseInt(document.getElementById('num_predict').value)
         };
+    }
+    
+    function newSession() {
+        const name = prompt("Session name:", `Chat ${Object.keys(sessions).length + 1}`);
+        if (!name) return;
+        const id = Date.now().toString();
+        sessions[id] = { name, history: [], created: new Date().toISOString() };
+        localStorage.setItem('webolla_sessions', JSON.stringify(sessions));
+        loadSession(id);
+        renderSessions();
+    }
+    
+    function loadSession(id) {
+        currentSession = id;
+        chatHistory = sessions[id].history;
+        renderChat();
+        renderSessions();
+    }
+    
+    function saveSession() {
+        if (currentSession) {
+            sessions[currentSession].history = chatHistory;
+            localStorage.setItem('webolla_sessions', JSON.stringify(sessions));
+        }
+    }
+    
+    function deleteSession(id, e) {
+        e.stopPropagation();
+        if (confirm("Delete this session?")) {
+            delete sessions[id];
+            localStorage.setItem('webolla_sessions', JSON.stringify(sessions));
+            if (currentSession === id) {
+                currentSession = null;
+                chatHistory = [];
+                renderChat();
+            }
+            renderSessions();
+        }
+    }
+    
+    function renderSessions() {
+        const list = document.getElementById('sessions-list');
+        list.innerHTML = '';
+        Object.keys(sessions).forEach(id => {
+            const div = document.createElement('div');
+            div.className = 'session-item' + (currentSession === id ? ' active' : '');
+            div.onclick = () => loadSession(id);
+            div.innerHTML = `<span>${sessions[id].name}</span><button onclick="deleteSession('${id}', event)" style="background:#f85149;">×</button>`;
+            list.appendChild(div);
+        });
+    }
+    
+    function renderChat() {
+        const out = document.getElementById('output');
+        if (chatHistory.length === 0) {
+            out.innerHTML = 'System ready. Select a model and start chatting.';
+            return;
+        }
+        out.innerHTML = '';
+        chatHistory.forEach(msg => {
+            const div = document.createElement('div');
+            div.className = 'chat-message chat-' + msg.role;
+            div.innerHTML = `<div class="chat-role">${msg.role}</div>${msg.content}`;
+            out.appendChild(div);
+        });
+        out.scrollTop = out.scrollHeight;
+    }
+    
+    function clearChat() {
+        if (confirm("Clear current chat?")) {
+            chatHistory = [];
+            saveSession();
+            renderChat();
+        }
+    }
+    
+    async function checkOllamaStatus() {
+        try {
+            const res = await fetch("/api/models");
+            const ok = res.ok;
+            document.getElementById('ollama-status').className = 'status-indicator status-' + (ok ? 'online' : 'offline');
+            document.getElementById('ollama-text').textContent = ok ? 'Online' : 'Offline';
+            document.getElementById('ollama-text').style.color = ok ? 'var(--green)' : 'var(--red)';
+        } catch(e) {
+            document.getElementById('ollama-status').className = 'status-indicator status-offline';
+            document.getElementById('ollama-text').textContent = 'Offline';
+            document.getElementById('ollama-text').style.color = 'var(--red)';
+        }
     }
     
     async function init() {
@@ -132,16 +232,22 @@
             models = data.models || [];
             filterModels();
         } catch(e) {}
+        renderSessions();
         setInterval(telemetry, 2000);
+        setInterval(checkOllamaStatus, 5000);
+        checkOllamaStatus();
     }
 
     function filterModels() {
-        const t = document.getElementById("task").value;
         const s = document.getElementById("models");
         s.innerHTML = "";
+        const t = document.getElementById("task").value;
         let list = (t === 'code') ? models.filter(m => m.name.includes("code")) : models;
         list.forEach(m => {
-            let o = document.createElement("option"); o.value = m.name; o.textContent = m.name; s.appendChild(o);
+            let o = document.createElement("option");
+            o.value = m.name;
+            o.textContent = m.name;
+            s.appendChild(o);
         });
     }
 
@@ -149,35 +255,39 @@
         try {
             const res = await fetch("/api/telemetry");
             const d = await res.json();
-            document.getElementById("gpu-name").textContent = d.gpu_name;
+            document.getElementById("gpu-name").textContent = d.gpu_name.replace(' GPU', '');
             const u = document.getElementById("gpu-usage");
             u.textContent = d.gpu_usage_val + "%";
             u.className = "stat-val " + (d.gpu_usage_val > 75 ? "high" : (d.gpu_usage_val > 30 ? "mid" : "low"));
-            document.getElementById("vram").textContent = d.vram_gb.toFixed(1) + " GB";
+            document.getElementById("vram").textContent = d.vram_gb.toFixed(1) + "GB";
+            document.getElementById("tps").textContent = (document.getElementById("tps").textContent.includes('t/s') ? document.getElementById("tps").textContent : '0.00 t/s');
         } catch(e) {}
     }
 
     async function generate() {
         const btn = document.getElementById("genBtn");
-        const out = document.getElementById("output");
-        btn.disabled = true; 
-        out.textContent = "";
+        const promptText = document.getElementById("prompt").value.trim();
+        if (!promptText) return;
         
+        btn.disabled = true;
+        chatHistory.push({ role: 'user', content: promptText });
+        renderChat();
+        document.getElementById("prompt").value = '';
+        
+        let assistantText = '';
         try {
-            const params = getModelParams();
             const res = await fetch("/api/generate", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ 
                     model: document.getElementById("models").value, 
-                    prompt: document.getElementById("prompt").value,
-                    ...params
+                    prompt: promptText,
+                    ...getModelParams()
                 })
             });
             
             const reader = res.body.getReader();
             const decoder = new TextDecoder();
-            let fullText = "";
             let lastData = null;
             
             while (true) {
@@ -185,27 +295,31 @@
                 if (done) break;
                 
                 const chunk = decoder.decode(value);
-                const lines = chunk.split('\n');
-                
-                for (const line of lines) {
-                    if (!line.trim()) continue;
+                chunk.split('\n').forEach(line => {
+                    if (!line.trim()) return;
                     try {
                         const data = JSON.parse(line);
                         if (data.response) {
-                            fullText += data.response;
-                            out.textContent = fullText;
+                            assistantText += data.response;
+                            if (chatHistory[chatHistory.length - 1].role === 'assistant') {
+                                chatHistory[chatHistory.length - 1].content = assistantText;
+                            } else {
+                                chatHistory.push({ role: 'assistant', content: assistantText });
+                            }
+                            renderChat();
                         }
                         lastData = data;
                     } catch(e) {}
-                }
+                });
             }
             
-            if (lastData && lastData.eval_count && lastData.eval_duration) {
-                const tps = lastData.eval_count / (lastData.eval_duration / 1e9);
-                document.getElementById("tps").textContent = tps.toFixed(2) + " t/s";
+            if (lastData?.eval_count && lastData?.eval_duration) {
+                document.getElementById("tps").textContent = (lastData.eval_count / (lastData.eval_duration / 1e9)).toFixed(2) + " t/s";
             }
+            saveSession();
         } catch(e) { 
-            out.textContent = "Network Error: " + e.message; 
+            chatHistory.push({ role: 'assistant', content: 'Error: ' + e.message });
+            renderChat();
         } finally { 
             btn.disabled = false; 
         }
@@ -213,32 +327,35 @@
 
     async function generateRAG() {
         const btn = document.getElementById("ragBtn");
-        const out = document.getElementById("output");
-        btn.disabled = true; 
-        out.textContent = "";
+        const promptText = document.getElementById("prompt").value.trim();
+        if (!promptText) return;
         
+        btn.disabled = true;
+        chatHistory.push({ role: 'user', content: promptText + ' [RAG]' });
+        renderChat();
+        document.getElementById("prompt").value = '';
+        
+        let assistantText = '';
         try {
-            const params = getModelParams();
             const res = await fetch("/api/rag", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ 
                     model: document.getElementById("models").value, 
-                    prompt: document.getElementById("prompt").value,
-                    ...params
+                    prompt: promptText,
+                    ...getModelParams()
                 })
             });
             
             if (!res.ok) {
-                const err = await res.text();
-                out.textContent = "RAG Error: " + err;
+                chatHistory.push({ role: 'assistant', content: 'RAG Error: ' + await res.text() });
+                renderChat();
                 btn.disabled = false;
                 return;
             }
             
             const reader = res.body.getReader();
             const decoder = new TextDecoder();
-            let fullText = "";
             let lastData = null;
             
             while (true) {
@@ -246,27 +363,31 @@
                 if (done) break;
                 
                 const chunk = decoder.decode(value);
-                const lines = chunk.split('\n');
-                
-                for (const line of lines) {
-                    if (!line.trim()) continue;
+                chunk.split('\n').forEach(line => {
+                    if (!line.trim()) return;
                     try {
                         const data = JSON.parse(line);
                         if (data.response) {
-                            fullText += data.response;
-                            out.textContent = fullText;
+                            assistantText += data.response;
+                            if (chatHistory[chatHistory.length - 1].role === 'assistant') {
+                                chatHistory[chatHistory.length - 1].content = assistantText;
+                            } else {
+                                chatHistory.push({ role: 'assistant', content: assistantText });
+                            }
+                            renderChat();
                         }
                         lastData = data;
                     } catch(e) {}
-                }
+                });
             }
             
-            if (lastData && lastData.eval_count && lastData.eval_duration) {
-                const tps = lastData.eval_count / (lastData.eval_duration / 1e9);
-                document.getElementById("tps").textContent = tps.toFixed(2) + " t/s";
+            if (lastData?.eval_count && lastData?.eval_duration) {
+                document.getElementById("tps").textContent = (lastData.eval_count / (lastData.eval_duration / 1e9)).toFixed(2) + " t/s";
             }
+            saveSession();
         } catch(e) { 
-            out.textContent = "Network Error: " + e.message; 
+            chatHistory.push({ role: 'assistant', content: 'Error: ' + e.message });
+            renderChat();
         } finally { 
             btn.disabled = false; 
         }
@@ -275,7 +396,6 @@
     async function upload() {
         const fd = new FormData();
         for (const f of document.getElementById("f").files) fd.append("files", f);
-        
         try {
             const res = await fetch("/api/upload", { method: "POST", body: fd });
             const data = await res.json();
@@ -286,29 +406,14 @@
     }
 
     async function reindexAll() {
-        if (!confirm("Reindex all .txt files in uploads directory?")) return;
-        
+        if (!confirm("Reindex all text files?")) return;
         try {
             const res = await fetch("/api/reindex", { method: "POST" });
-            const text = await res.text();
-            console.log("Raw response:", text);
-            
-            try {
-                const data = JSON.parse(text);
-                if (data.error) {
-                    alert(`Error: ${data.error}\n${data.detail || ''}\nDebug: ${JSON.stringify(data.debug, null, 2)}`);
-                } else {
-                    alert(`Reindexing complete!
-Directory: ${data.upload_dir}
-All files: ${data.files_found.join(', ')}
-TXT files: ${data.txt_files.join(', ')}
-Files indexed: ${data.files_indexed}
-Total chunks: ${data.total_chunks}
-
-Debug: ${data.debug.join('\n')}`);
-                }
-            } catch(e) {
-                alert("Reindex response: " + text);
+            const data = JSON.parse(await res.text());
+            if (data.error) {
+                alert(`Error: ${data.error}`);
+            } else {
+                alert(`Reindexing complete!\nFiles: ${data.files_indexed}\nChunks: ${data.total_chunks}`);
             }
         } catch(e) {
             alert("Reindex failed: " + e.message);
