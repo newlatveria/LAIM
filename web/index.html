@@ -1,0 +1,647 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebOlla v4.9 Ironclad</title>
+    <style>
+        :root { --bg: #0b0e14; --panel: #161b22; --accent: #58a6ff; --green: #3fb950; --yellow: #d29922; --red: #f85149; }
+        * { box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica; background: var(--bg); color: #c9d1d9; margin: 0; display: flex; height: 100vh; overflow: hidden; }
+        
+        .sidebar { width: 300px; background: var(--panel); border-right: 1px solid #30363d; padding: 15px; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
+        .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+        
+        .tabs { display: flex; background: var(--panel); border-bottom: 1px solid #30363d; }
+        .tab { padding: 12px 20px; cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.2s; }
+        .tab:hover { background: #0d1117; }
+        .tab.active { border-bottom-color: var(--accent); color: var(--accent); }
+        
+        .tab-content { display: none; flex: 1; padding: 20px; overflow-y: auto; }
+        .tab-content.active { display: flex; flex-direction: column; }
+        
+        .stat-box { background: #0d1117; border: 1px solid #30363d; padding: 10px; border-radius: 6px; font-size: 13px; }
+        .stat-val { font-size: 1.1em; font-weight: bold; display: block; margin-top: 3px; }
+        
+        #output { flex: 1; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 15px; overflow-y: auto; font-family: monospace; color: #e6edf3; font-size: 13px; }
+        
+        textarea { width: 100%; background: #0d1117; color: white; border: 1px solid #30363d; border-radius: 6px; padding: 10px; font-size: 14px; resize: vertical; }
+        input[type="text"] { width: 100%; background: #0d1117; color: white; border: 1px solid #30363d; border-radius: 6px; padding: 8px; font-size: 13px; }
+        button { background: #238636; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 13px; }
+        button:hover { background: #2ea043; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        
+        .low { color: var(--green); } .mid { color: var(--yellow); } .high { color: var(--red); }
+        .rag-btn { background: #8250df; }
+        .rag-btn:hover { background: #9a6dd7; }
+        
+        .control-group { background: #0d1117; border: 1px solid #30363d; padding: 8px; border-radius: 6px; margin-bottom: 8px; }
+        .control-group label { display: block; font-size: 11px; color: #8b949e; margin-bottom: 4px; }
+        .control-group input[type="range"] { width: 100%; }
+        .control-group .value-display { float: right; color: var(--accent); font-weight: bold; }
+        select, input[type="number"] { width: 100%; padding: 6px; background: #0d1117; color: white; border: 1px solid #30363d; border-radius: 6px; font-size: 13px; }
+        
+        .collapsible { cursor: pointer; user-select: none; padding: 6px 8px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; font-size: 13px; }
+        .collapsible:hover { background: #161b22; }
+        .collapsible-content { max-height: 0; overflow: hidden; transition: max-height 0.3s ease; }
+        .collapsible-content.active { max-height: 500px; padding-top: 8px; }
+        
+        .status-indicator { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+        .status-online { background: var(--green); box-shadow: 0 0 6px var(--green); }
+        .status-offline { background: var(--red); box-shadow: 0 0 6px var(--red); }
+        
+        .chat-message { margin-bottom: 12px; padding: 8px; border-radius: 6px; white-space: pre-wrap; }
+        .chat-user { background: #1c2128; border-left: 3px solid var(--accent); }
+        .chat-assistant { background: #0d1117; border-left: 3px solid var(--green); }
+        .chat-role { font-weight: bold; font-size: 10px; color: #8b949e; margin-bottom: 4px; text-transform: uppercase; }
+        
+        .session-item { padding: 6px; background: #0d1117; border: 1px solid #30363d; border-radius: 4px; margin-bottom: 4px; cursor: pointer; font-size: 12px; display: flex; justify-content: space-between; align-items: center; }
+        .session-item:hover { background: #161b22; }
+        .session-item.active { border-color: var(--accent); }
+        .session-item button { padding: 2px 6px; font-size: 12px; }
+        
+        .model-card { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 12px; margin-bottom: 10px; }
+        .model-card h4 { margin: 0 0 8px 0; color: var(--accent); }
+        .model-card .model-info { font-size: 12px; color: #8b949e; margin-bottom: 8px; }
+        .model-card .model-actions { display: flex; gap: 8px; }
+        
+        .log-entry { padding: 8px; background: #0d1117; border-left: 3px solid #30363d; margin-bottom: 4px; border-radius: 4px; font-size: 12px; }
+        .log-success { border-left-color: var(--green); }
+        .log-error { border-left-color: var(--red); }
+        .log-info { border-left-color: var(--accent); }
+        
+        [title] { cursor: help; }
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <h3 style="margin: 0 0 10px 0;" title="WebOlla - Local Ollama Web Interface">WebOlla <small style="font-size:0.6em">v4.9</small></h3>
+        
+        <div class="stat-box" title="Ollama server connection status - checks every 5 seconds">
+            <span class="status-indicator" id="ollama-status"></span>
+            Ollama: <span id="ollama-text" style="font-weight: bold;">...</span>
+        </div>
+        
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+            <div class="stat-box" title="Graphics processing unit detected on your system"><span title="GPU device name">GPU</span><br><span id="gpu-name" class="stat-val" style="font-size: 0.9em;">---</span></div>
+            <div class="stat-box" title="Current GPU utilization percentage"><span title="GPU load percentage">Load</span><br><span id="gpu-usage" class="stat-val">0%</span></div>
+            <div class="stat-box" title="Video RAM currently in use"><span title="VRAM usage in gigabytes">VRAM</span><br><span id="vram" class="stat-val" style="color:var(--accent)">0.0</span></div>
+            <div class="stat-box" title="Generation speed in tokens per second"><span title="Tokens generated per second">Speed</span><br><span id="tps" class="stat-val" style="color:#bc8cff">0.00</span></div>
+        </div>
+        
+        <hr style="border:0; border-top:1px solid #30363d; margin: 5px 0;">
+        
+        <select id="task" onchange="filterModels()" title="Filter models by task type">
+            <option value="all">All Models</option>
+            <option value="code">Coding</option>
+        </select>
+        <select id="models" title="Select the AI model to use for generation"></select>
+        
+        <div class="collapsible" onclick="toggleCollapse(this)" title="Click to expand/collapse chat session management">💬 Chat Sessions</div>
+        <div class="collapsible-content">
+            <button onclick="newSession()" style="width:100%; margin-bottom:6px; background:#30363d;" title="Create a new chat session">New</button>
+            <div id="sessions-list"></div>
+        </div>
+        
+        <div class="collapsible" onclick="toggleCollapse(this)" title="Click to expand/collapse model generation parameters">⚙️ Parameters</div>
+        <div class="collapsible-content">
+            <div class="control-group">
+                <label title="Controls randomness: 0=focused, 2=creative">Temp <span class="value-display" id="temp-val">0.7</span></label>
+                <input type="range" id="temperature" min="0" max="2" step="0.1" value="0.7" oninput="updateValue('temp-val', this.value)" title="Temperature: Higher values make output more random">
+            </div>
+            <div class="control-group">
+                <label title="Nucleus sampling: consider tokens with cumulative probability up to this value">Top P <span class="value-display" id="topp-val">0.9</span></label>
+                <input type="range" id="top_p" min="0" max="1" step="0.05" value="0.9" oninput="updateValue('topp-val', this.value)" title="Top P: Lower values make output more focused">
+            </div>
+            <div class="control-group">
+                <label title="Limits vocabulary to top K most likely tokens">Top K <span class="value-display" id="topk-val">40</span></label>
+                <input type="range" id="top_k" min="1" max="100" step="1" value="40" oninput="updateValue('topk-val', this.value)" title="Top K: Lower values make output more deterministic">
+            </div>
+            <div class="control-group">
+                <label title="Maximum number of tokens to generate in response">Max Tokens</label>
+                <input type="number" id="num_predict" min="1" max="8192" value="2048" title="Max tokens: Limits response length">
+            </div>
+        </div>
+    </div>
+
+    <div class="main">
+        <div class="tabs">
+            <div class="tab active" onclick="switchTab('chat')" title="Chat interface for conversing with AI models">💬 Chat</div>
+            <div class="tab" onclick="switchTab('models')" title="Manage and download AI models">🤖 Models</div>
+            <div class="tab" onclick="switchTab('rag')" title="Upload and manage documents for RAG (Retrieval-Augmented Generation)">📚 RAG</div>
+            <div class="tab" onclick="switchTab('logs')" title="View activity logs and system events">📋 Logs</div>
+        </div>
+        
+        <!-- Chat Tab -->
+        <div id="tab-chat" class="tab-content active">
+            <div id="output" title="Chat conversation history">System ready. Select a model and start chatting.</div>
+            <textarea id="prompt" rows="3" placeholder="Send a message..." title="Type your message here and press Generate"></textarea>
+            <div style="display:flex; gap:8px; flex-wrap: wrap;">
+                <button id="genBtn" onclick="generate()" style="flex:1;" title="Generate a response from the selected AI model">Generate</button>
+                <button id="ragBtn" onclick="generateRAG()" class="rag-btn" style="flex:1;" title="Generate response using uploaded documents as context">RAG</button>
+                <button onclick="clearChat()" style="background:#d29922;" title="Clear the current chat history">Clear</button>
+            </div>
+        </div>
+        
+        <!-- Models Tab -->
+        <div id="tab-models" class="tab-content">
+            <h3 style="margin-top:0;">Model Management</h3>
+            <div style="display:flex; gap:10px; margin-bottom:20px;">
+                <input type="text" id="pull-model-name" placeholder="model:tag (e.g., llama3.2:1b)" style="flex:1;" title="Enter model name and tag to download from Ollama library">
+                <button onclick="pullModel()" style="background:var(--accent);" title="Download the specified model from Ollama">Pull Model</button>
+            </div>
+            <div id="models-list" title="List of installed models on your system"></div>
+        </div>
+        
+        <!-- RAG Tab -->
+        <div id="tab-rag" class="tab-content">
+            <h3 style="margin-top:0;">RAG Document Management</h3>
+            <div style="display:flex; gap:10px; margin-bottom:20px;">
+                <button onclick="document.getElementById('f').click()" style="background:#30363d; flex:1;" title="Upload text files to use as context for RAG queries">Upload Files</button>
+                <button onclick="reindexAll()" style="background:#58a6ff; flex:1;" title="Re-index all files in the uploads directory">Reindex All</button>
+                <input type="file" id="f" hidden multiple onchange="upload()" title="Select files to upload">
+            </div>
+            <div class="stat-box" title="Statistics about indexed documents">
+                <strong>Indexed Documents</strong>
+                <div id="rag-stats" style="margin-top:10px; font-size:12px;">Loading...</div>
+            </div>
+            <div style="margin-top:20px;">
+                <h4>Supported File Types</h4>
+                <ul style="font-size:13px; color:#8b949e;">
+                    <li title="Plain text documents">.txt - Plain text files</li>
+                    <li title="Markdown formatted documents">.md - Markdown documents</li>
+                    <li title="Application log files">.log - Log files</li>
+                    <li title="License and readme files">LICENSE, README - Documentation</li>
+                    <li title="Bash history and configuration files">.bash* - Bash history/config</li>
+                </ul>
+            </div>
+        </div>
+        
+        <!-- Logs Tab -->
+        <div id="tab-logs" class="tab-content">
+            <h3 style="margin-top:0;">Activity Logs</h3>
+            <button onclick="clearLogs()" style="background:#f85149; margin-bottom:10px;" title="Delete all activity logs">Clear Logs</button>
+            <div id="logs-container" title="Chronological list of system activities and events"></div>
+        </div>
+    </div>
+
+    <script>
+    let models = [];
+    let currentSession = null;
+    let sessions = JSON.parse(localStorage.getItem('webolla_sessions') || '{}');
+    let chatHistory = [];
+    let activityLogs = JSON.parse(localStorage.getItem('webolla_logs') || '[]');
+    
+    function switchTab(tab) {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+        event.target.classList.add('active');
+        document.getElementById('tab-' + tab).classList.add('active');
+        
+        if (tab === 'models') loadModelsManagement();
+        if (tab === 'rag') loadRAGStats();
+        if (tab === 'logs') renderLogs();
+    }
+    
+    function addLog(type, message) {
+        const log = {
+            type,
+            message,
+            timestamp: new Date().toISOString()
+        };
+        activityLogs.unshift(log);
+        if (activityLogs.length > 100) activityLogs = activityLogs.slice(0, 100);
+        localStorage.setItem('webolla_logs', JSON.stringify(activityLogs));
+    }
+    
+    function clearLogs() {
+        if (confirm("Clear all logs?")) {
+            activityLogs = [];
+            localStorage.setItem('webolla_logs', JSON.stringify(activityLogs));
+            renderLogs();
+        }
+    }
+    
+    function renderLogs() {
+        const container = document.getElementById('logs-container');
+        if (activityLogs.length === 0) {
+            container.innerHTML = '<p style="color:#8b949e;">No logs yet.</p>';
+            return;
+        }
+        container.innerHTML = activityLogs.map(log => `
+            <div class="log-entry log-${log.type}">
+                <strong>${new Date(log.timestamp).toLocaleString()}</strong><br>
+                ${log.message}
+            </div>
+        `).join('');
+    }
+    
+    async function loadModelsManagement() {
+        const container = document.getElementById('models-list');
+        container.innerHTML = '<p>Loading models...</p>';
+        
+        try {
+            const res = await fetch("/api/models");
+            const data = await res.json();
+            const modelsList = data.models || [];
+            
+            if (modelsList.length === 0) {
+                container.innerHTML = '<p style="color:#8b949e;">No models installed.</p>';
+                return;
+            }
+            
+            container.innerHTML = modelsList.map(m => `
+                <div class="model-card" title="Model: ${m.name}">
+                    <h4>${m.name}</h4>
+                    <div class="model-info">
+                        <span title="Model file size on disk">Size: ${(m.size / 1e9).toFixed(2)} GB</span><br>
+                        <span title="Last modification date">Modified: ${new Date(m.modified_at).toLocaleString()}</span>
+                    </div>
+                    <div class="model-actions">
+                        <button onclick="deleteModel('${m.name}')" style="background:#f85149;" title="Remove this model from your system">Delete</button>
+                        <button onclick="copyModel('${m.name}')" style="background:#30363d;" title="Copy model name to clipboard">Copy Name</button>
+                    </div>
+                </div>
+            `).join('');
+        } catch(e) {
+            container.innerHTML = '<p style="color:var(--red);">Failed to load models.</p>';
+        }
+    }
+    
+    async function pullModel() {
+        const name = document.getElementById('pull-model-name').value.trim();
+        if (!name) {
+            alert("Please enter a model name");
+            return;
+        }
+        
+        addLog('info', `Pulling model: ${name}`);
+        alert(`Started pulling ${name}. This may take several minutes. Check Ollama terminal for progress.`);
+        
+        try {
+            const res = await fetch("/api/models", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name })
+            });
+            
+            if (res.ok) {
+                addLog('success', `Successfully pulled model: ${name}`);
+                alert(`Model ${name} pull initiated. Refresh models list after download completes.`);
+                document.getElementById('pull-model-name').value = '';
+            } else {
+                addLog('error', `Failed to pull model: ${name}`);
+                alert("Failed to pull model. Check Ollama is running.");
+            }
+        } catch(e) {
+            addLog('error', `Error pulling model: ${e.message}`);
+            alert("Error: " + e.message);
+        }
+    }
+    
+    async function deleteModel(name) {
+        if (!confirm(`Delete model ${name}?`)) return;
+        
+        addLog('info', `Deleting model: ${name}`);
+        alert("Model deletion not implemented in Ollama API yet. Use 'ollama rm' in terminal.");
+    }
+    
+    function copyModel(name) {
+        navigator.clipboard.writeText(name);
+        alert(`Copied: ${name}`);
+    }
+    
+    async function loadRAGStats() {
+        const container = document.getElementById('rag-stats');
+        try {
+            const res = await fetch("/api/reindex");
+            const data = await res.json();
+            container.innerHTML = `
+                Files indexed: <strong>${data.files_indexed || 0}</strong><br>
+                Total chunks: <strong>${data.total_chunks || 0}</strong><br>
+                Upload directory: <code>${data.upload_dir || 'data/uploads'}</code>
+            `;
+        } catch(e) {
+            container.innerHTML = 'Unable to load stats';
+        }
+    }
+    
+    function toggleCollapse(el) {
+        el.nextElementSibling.classList.toggle('active');
+    }
+    
+    function updateValue(id, val) {
+        document.getElementById(id).textContent = val;
+    }
+    
+    function getModelParams() {
+        return {
+            temperature: parseFloat(document.getElementById('temperature').value),
+            top_p: parseFloat(document.getElementById('top_p').value),
+            top_k: parseInt(document.getElementById('top_k').value),
+            num_predict: parseInt(document.getElementById('num_predict').value)
+        };
+    }
+    
+    function newSession() {
+        const name = prompt("Session name:", `Chat ${Object.keys(sessions).length + 1}`);
+        if (!name) return;
+        const id = Date.now().toString();
+        sessions[id] = { name, history: [], created: new Date().toISOString() };
+        localStorage.setItem('webolla_sessions', JSON.stringify(sessions));
+        loadSession(id);
+        renderSessions();
+        addLog('info', `Created session: ${name}`);
+    }
+    
+    function loadSession(id) {
+        currentSession = id;
+        chatHistory = sessions[id].history;
+        renderChat();
+        renderSessions();
+    }
+    
+    function saveSession() {
+        if (currentSession) {
+            sessions[currentSession].history = chatHistory;
+            localStorage.setItem('webolla_sessions', JSON.stringify(sessions));
+        }
+    }
+    
+    function deleteSession(id, e) {
+        e.stopPropagation();
+        if (confirm("Delete this session?")) {
+            addLog('info', `Deleted session: ${sessions[id].name}`);
+            delete sessions[id];
+            localStorage.setItem('webolla_sessions', JSON.stringify(sessions));
+            if (currentSession === id) {
+                currentSession = null;
+                chatHistory = [];
+                renderChat();
+            }
+            renderSessions();
+        }
+    }
+    
+    function renderSessions() {
+        const list = document.getElementById('sessions-list');
+        list.innerHTML = '';
+        Object.keys(sessions).forEach(id => {
+            const div = document.createElement('div');
+            div.className = 'session-item' + (currentSession === id ? ' active' : '');
+            div.onclick = () => loadSession(id);
+            div.title = `Load session: ${sessions[id].name} (Created: ${new Date(sessions[id].created).toLocaleString()})`;
+            div.innerHTML = `<span>${sessions[id].name}</span><button onclick="deleteSession('${id}', event)" style="background:#f85149;" title="Delete this chat session">×</button>`;
+            list.appendChild(div);
+        });
+    }
+    
+    function renderChat() {
+        const out = document.getElementById('output');
+        if (chatHistory.length === 0) {
+            out.innerHTML = 'System ready. Select a model and start chatting.';
+            return;
+        }
+        out.innerHTML = '';
+        chatHistory.forEach(msg => {
+            const div = document.createElement('div');
+            div.className = 'chat-message chat-' + msg.role;
+            div.innerHTML = `<div class="chat-role">${msg.role}</div>${msg.content}`;
+            out.appendChild(div);
+        });
+        out.scrollTop = out.scrollHeight;
+    }
+    
+    function clearChat() {
+        if (confirm("Clear current chat?")) {
+            chatHistory = [];
+            saveSession();
+            renderChat();
+            addLog('info', 'Cleared chat history');
+        }
+    }
+    
+    async function checkOllamaStatus() {
+        try {
+            const res = await fetch("/api/models");
+            const ok = res.ok;
+            document.getElementById('ollama-status').className = 'status-indicator status-' + (ok ? 'online' : 'offline');
+            document.getElementById('ollama-text').textContent = ok ? 'Online' : 'Offline';
+            document.getElementById('ollama-text').style.color = ok ? 'var(--green)' : 'var(--red)';
+        } catch(e) {
+            document.getElementById('ollama-status').className = 'status-indicator status-offline';
+            document.getElementById('ollama-text').textContent = 'Offline';
+            document.getElementById('ollama-text').style.color = 'var(--red)';
+        }
+    }
+    
+    async function init() {
+        try {
+            const res = await fetch("/api/models");
+            const data = await res.json();
+            models = data.models || [];
+            filterModels();
+        } catch(e) {}
+        renderSessions();
+        setInterval(telemetry, 2000);
+        setInterval(checkOllamaStatus, 5000);
+        checkOllamaStatus();
+    }
+
+    function filterModels() {
+        const s = document.getElementById("models");
+        s.innerHTML = "";
+        const t = document.getElementById("task").value;
+        let list = (t === 'code') ? models.filter(m => m.name.includes("code")) : models;
+        list.forEach(m => {
+            let o = document.createElement("option");
+            o.value = m.name;
+            o.textContent = m.name;
+            s.appendChild(o);
+        });
+    }
+
+    async function telemetry() {
+        try {
+            const res = await fetch("/api/telemetry");
+            const d = await res.json();
+            document.getElementById("gpu-name").textContent = d.gpu_name.replace(' GPU', '');
+            const u = document.getElementById("gpu-usage");
+            u.textContent = d.gpu_usage_val + "%";
+            u.className = "stat-val " + (d.gpu_usage_val > 75 ? "high" : (d.gpu_usage_val > 30 ? "mid" : "low"));
+            document.getElementById("vram").textContent = d.vram_gb.toFixed(1) + "GB";
+        } catch(e) {}
+    }
+
+    async function generate() {
+        const btn = document.getElementById("genBtn");
+        const promptText = document.getElementById("prompt").value.trim();
+        if (!promptText) return;
+        
+        btn.disabled = true;
+        chatHistory.push({ role: 'user', content: promptText });
+        renderChat();
+        document.getElementById("prompt").value = '';
+        addLog('info', 'Generated response');
+        
+        let assistantText = '';
+        try {
+            const res = await fetch("/api/generate", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ 
+                    model: document.getElementById("models").value, 
+                    prompt: promptText,
+                    ...getModelParams()
+                })
+            });
+            
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let lastData = null;
+            
+            while (true) {
+                const {done, value} = await reader.read();
+                if (done) break;
+                
+                const chunk = decoder.decode(value);
+                chunk.split('\n').forEach(line => {
+                    if (!line.trim()) return;
+                    try {
+                        const data = JSON.parse(line);
+                        if (data.response) {
+                            assistantText += data.response;
+                            if (chatHistory[chatHistory.length - 1].role === 'assistant') {
+                                chatHistory[chatHistory.length - 1].content = assistantText;
+                            } else {
+                                chatHistory.push({ role: 'assistant', content: assistantText });
+                            }
+                            renderChat();
+                        }
+                        lastData = data;
+                    } catch(e) {}
+                });
+            }
+            
+            if (lastData?.eval_count && lastData?.eval_duration) {
+                document.getElementById("tps").textContent = (lastData.eval_count / (lastData.eval_duration / 1e9)).toFixed(2) + " t/s";
+            }
+            saveSession();
+        } catch(e) { 
+            chatHistory.push({ role: 'assistant', content: 'Error: ' + e.message });
+            renderChat();
+            addLog('error', 'Generation failed: ' + e.message);
+        } finally { 
+            btn.disabled = false; 
+        }
+    }
+
+    async function generateRAG() {
+        const btn = document.getElementById("ragBtn");
+        const promptText = document.getElementById("prompt").value.trim();
+        if (!promptText) return;
+        
+        btn.disabled = true;
+        chatHistory.push({ role: 'user', content: promptText + ' [RAG]' });
+        renderChat();
+        document.getElementById("prompt").value = '';
+        addLog('info', 'Generated RAG response');
+        
+        let assistantText = '';
+        try {
+            const res = await fetch("/api/rag", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ 
+                    model: document.getElementById("models").value, 
+                    prompt: promptText,
+                    ...getModelParams()
+                })
+            });
+            
+            if (!res.ok) {
+                chatHistory.push({ role: 'assistant', content: 'RAG Error: ' + await res.text() });
+                renderChat();
+                btn.disabled = false;
+                addLog('error', 'RAG query failed');
+                return;
+            }
+            
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let lastData = null;
+            
+            while (true) {
+                const {done, value} = await reader.read();
+                if (done) break;
+                
+                const chunk = decoder.decode(value);
+                chunk.split('\n').forEach(line => {
+                    if (!line.trim()) return;
+                    try {
+                        const data = JSON.parse(line);
+                        if (data.response) {
+                            assistantText += data.response;
+                            if (chatHistory[chatHistory.length - 1].role === 'assistant') {
+                                chatHistory[chatHistory.length - 1].content = assistantText;
+                            } else {
+                                chatHistory.push({ role: 'assistant', content: assistantText });
+                            }
+                            renderChat();
+                        }
+                        lastData = data;
+                    } catch(e) {}
+                });
+            }
+            
+            if (lastData?.eval_count && lastData?.eval_duration) {
+                document.getElementById("tps").textContent = (lastData.eval_count / (lastData.eval_duration / 1e9)).toFixed(2) + " t/s";
+            }
+            saveSession();
+        } catch(e) { 
+            chatHistory.push({ role: 'assistant', content: 'Error: ' + e.message });
+            renderChat();
+            addLog('error', 'RAG generation failed: ' + e.message);
+        } finally { 
+            btn.disabled = false; 
+        }
+    }
+
+    async function upload() {
+        const fd = new FormData();
+        const files = document.getElementById("f").files;
+        for (const f of files) fd.append("files", f);
+        try {
+            const res = await fetch("/api/upload", { method: "POST", body: fd });
+            const data = await res.json();
+            alert(`Files uploaded: ${data.uploaded}\nChunks indexed: ${data.indexed}`);
+            addLog('success', `Uploaded ${data.uploaded} files, indexed ${data.indexed} chunks`);
+        } catch(e) {
+            alert("Upload failed: " + e.message);
+            addLog('error', 'Upload failed: ' + e.message);
+        }
+    }
+
+    async function reindexAll() {
+        if (!confirm("Reindex all text files?")) return;
+        addLog('info', 'Started reindexing');
+        try {
+            const res = await fetch("/api/reindex", { method: "POST" });
+            const data = await res.json();
+            if (data.error) {
+                alert(`Error: ${data.error}`);
+                addLog('error', 'Reindex failed: ' + data.error);
+            } else {
+                alert(`Reindexing complete!\nFiles: ${data.files_indexed}\nChunks: ${data.total_chunks}`);
+                addLog('success', `Reindexed ${data.files_indexed} files, ${data.total_chunks} chunks`);
+            }
+        } catch(e) {
+            alert("Reindex failed: " + e.message);
+            addLog('error', 'Reindex failed: ' + e.message);
+        }
+    }
+
+    init();
+    </script>
+</body>
+</html>
