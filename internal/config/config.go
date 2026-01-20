@@ -3,20 +3,22 @@ package config
 import "os"
 
 type Config struct {
-	Port          string
-	OllamaBaseURL string
+	Port           string
+	OllamaBaseURL  string
+	UploadDir      string
 }
 
 func Load() *Config {
 	return &Config{
-		Port:          env("PORT", "8080"),
-		OllamaBaseURL: env("OLLAMA_BASE_URL", "http://127.0.0.1:11434"),
+		Port:          getEnv("PORT", "8080"),
+		OllamaBaseURL: getEnv("OLLAMA_URL", "http://localhost:11434"),
+		UploadDir:     "./uploads",
 	}
 }
 
-func env(k, d string) string {
-	if v := os.Getenv(k); v != "" {
-		return v
+func getEnv(key, fallback string) string {
+	if value, ok := os.LookupEnv(key); ok {
+		return value
 	}
-	return d
+	return fallback
 }

@@ -1,0 +1,192 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>LAIM - Helpful Generate</title>
+  <style>
+    body { font-family: sans-serif; max-width: 900px; margin: auto; padding: 20px; line-height: 1.5; }
+    textarea { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; }
+    pre { 
+        background: #f5f5f5; 
+        padding: 1em; 
+        white-space: pre-wrap; 
+        word-wrap: break-word; 
+        border-radius: 4px;
+        border: 1px solid #ddd;
+        min-height: 50px;
+    }
+    select, button { padding: 8px; margin-top: 5px; }
+    .loading { color: #666; font-style: italic; }
+  </style>
+</head>
+<body>
+
+<h1>Local AI Manager</h1>
+
+<h2>Generate</h2>
+
+<label>Task</label>
+<select id="task" onchange="recommend()">
+  <option value="writing">Writing / Summarization</option>
+  <option value="code">Code / Programming</option>
+  <option value="reasoning">Reasoning / Q&A</option>
+  <option value="fast">Fast / Lightweight</option>
+  <option value="advanced">Advanced (show all)</option>
+</select>
+
+<p><em>Models are recommended based on task, but you can always choose any.</em></p>
+
+<label>Model</label>
+<select id="models"></select>
+
+<br><br>
+<textarea id="prompt" rows="6" placeholder="Enter prompt..."></textarea>
+<br><br>
+<button id="gen-btn" onclick="generate()">Generate</button>
+
+<pre id="output"></pre>
+
+<hr>
+
+<h2>Upload Files / Folders</h2>
+<input type="file" id="files" multiple>
+<input type="file" id="folders" webkitdirectory multiple>
+<br><br>
+<button onclick="upload()">Upload</button>
+<br><br>
+<button onclick="clearContext()" style="color: red;">Clear All Files</button>
+
+<script>
+let allModels = []
+
+async function loadModels() {
+  try {
+    const res = await fetch("/api/models")
+    const data = await res.json()
+    allModels = data.models || []
+    recommend()
+  } catch (err) {
+    document.getElementById("output").textContent = "Error loading models. Is Ollama running?"
+  }
+}
+
+async function clearContext() {
+    if (!confirm("Delete all uploaded files?")) return;
+    const res = await fetch("/api/reindex"); // Calls ReindexAll handler
+    const msg = await res.text();
+    alert(msg);
+}
+
+function recommend() {
+  const task = document.getElementById("task").value
+  const sel = document.getElementById("models")
+  sel.innerHTML = ""
+
+  let filtered = allModels
+
+  if (task === "code") {
+    filtered = allModels.filter(m => m.name.toLowerCase().includes("coder") || m.name.toLowerCase().includes("code"))
+  } else if (task === "fast") {
+    filtered = allModels.filter(m =>
+      m.details?.parameter_size &&
+      parseFloat(m.details.parameter_size) <= 4 // Small models
+    )
+  } else if (task === "advanced") {
+    filtered = allModels
+  }
+
+  if (filtered.length === 0) filtered = allModels
+
+  for (const m of filtered) {
+    const o = document.createElement("option")
+    o.value = m.name
+    o.textContent = m.name
+    sel.appendChild(o)
+  }
+}
+
+async function generate() {
+  const model = document.getElementById("models").value
+  const prompt = document.getElementById("prompt").value
+  const output = document.getElementById("output")
+  const btn = document.getElementById("gen-btn")
+
+  if (!prompt) return;
+
+  // UI Setup
+  output.textContent = "" 
+  output.classList.add("loading")
+  btn.disabled = true
+  
+  try {
+    const res = await fetch("/api/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      // IMPORTANT: Updated payload to match Ollama /api/chat expectations
+      body: JSON.stringify({ 
+        model: model, 
+        messages: [{ role: "user", content: prompt }] 
+      })
+    })
+
+    if (!res.ok) throw new Error(await res.text())
+
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    let fullText = ""
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      const chunk = decoder.decode(value, { stream: true })
+      const lines = chunk.split('\n')
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            const json = JSON.parse(line.substring(6))
+            
+            // Access the chat-style content key
+            if (json.message && json.message.content) {
+              output.classList.remove("loading")
+              fullText += json.message.content
+              output.textContent = fullText
+            }
+          } catch (e) {
+            // Ignore partial JSON lines
+          }
+        }
+      }
+    }
+  } catch (err) {
+    output.textContent = "Error: " + err.message
+  } finally {
+    btn.disabled = false
+    output.classList.remove("loading")
+  }
+}
+
+async function upload() {
+  const fileInput = document.getElementById("files")
+  const folderInput = document.getElementById("folders")
+  const data = new FormData()
+  
+  for (const f of fileInput.files) data.append("files", f)
+  for (const f of folderInput.files) data.append("files", f)
+
+  if (data.getAll("files").length === 0) return alert("Select files first")
+
+  try {
+    await fetch("/api/upload", { method: "POST", body: data })
+    alert("Upload complete")
+  } catch (err) {
+    alert("Upload failed: " + err.message)
+  }
+}
+
+loadModels()
+</script>
+
+</body>
+</html>

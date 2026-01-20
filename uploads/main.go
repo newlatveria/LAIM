@@ -10,16 +10,20 @@ import (
 	"webolla/internal/handlers"
 )
 
-// Helper function to get non-loopback IP addresses
+// getHostIPs finds all non-loopback IPv4 addresses for this machine.
 func getHostIPs() []string {
 	var ips []string
-
 	ifaces, err := net.Interfaces()
 	if err != nil {
 		return ips
 	}
 
 	for _, iface := range ifaces {
+		// Skip down interfaces or loopback interfaces
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+
 		addrs, err := iface.Addrs()
 		if err != nil {
 			continue
@@ -34,10 +38,10 @@ func getHostIPs() []string {
 				ip = v.IP
 			}
 
+			// Ensure it's a valid IPv4 address and not loopback
 			if ip == nil || ip.IsLoopback() {
 				continue
 			}
-
 			if ip.To4() != nil {
 				ips = append(ips, ip.String())
 			}
@@ -46,7 +50,7 @@ func getHostIPs() []string {
 	return ips
 }
 
-// Custom ResponseWriter to capture status code for logging
+// Custom ResponseWriter to capture status code AND support Flushing (Streaming)
 type loggingResponseWriter struct {
 	http.ResponseWriter
 	statusCode int
@@ -57,39 +61,42 @@ func (lrw *loggingResponseWriter) WriteHeader(code int) {
 	lrw.ResponseWriter.WriteHeader(code)
 }
 
-// Middleware to log HTTP requests
+// THIS IS THE FIX: Add the Flush method so the middleware doesn't break streaming
+func (lrw *loggingResponseWriter) Flush() {
+	if f, ok := lrw.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// loggingMiddleware logs details about every incoming request.
 func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 
 		lrw := &loggingResponseWriter{
 			ResponseWriter: w,
-			statusCode:     http.StatusOK,
+			statusCode:     http.StatusOK, // Default to 200
 		}
 
 		next.ServeHTTP(lrw, r)
 
-		duration := time.Since(start)
-		clientIP := r.RemoteAddr
-
 		log.Printf(
-			"%s %s %d %s | %s | %s",
+			"%s %s %d %s | %s",
 			r.Method,
 			r.URL.Path,
 			lrw.statusCode,
-			duration,
-			clientIP,
-			r.UserAgent(),
+			time.Since(start),
+			r.RemoteAddr,
 		)
 	})
 }
 
 func main() {
-	// Load configuration
+	// 1. Load configuration
 	cfg := config.Load()
 	h := handlers.New(cfg)
 
-	// Initialize HTTP mux
+	// 2. Initialize Router
 	mux := http.NewServeMux()
 
 	// API routes
@@ -100,20 +107,32 @@ func main() {
 	mux.HandleFunc("/api/reindex", h.ReindexAll)
 	mux.HandleFunc("/api/telemetry", h.Telemetry)
 
-	// Catch-all route for index (must be last)
+	// Static assets (if you have a folder for CSS/JS)
+	// mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
+
+	// Catch-all route for the Frontend (must be "/")
+	// ServeMux uses longest-prefix matching, so API routes above take priority.
 	mux.HandleFunc("/", h.Index)
 
-	// Wrap mux with logging middleware
+	// 3. Wrap with Middleware
 	handler := loggingMiddleware(mux)
 
-	// Display accessible URLs
-	log.Println("WebOlla running on:")
-	log.Printf("  http://localhost:%s\n", cfg.Port)
+	// 4. Display IP Information
+	log.Println("WebOlla UI is accessible at:")
+	log.Printf("  Local:   http://localhost:%s\n", cfg.Port)
 	for _, ip := range getHostIPs() {
-		log.Printf("  http://%s:%s\n", ip, cfg.Port)
+		log.Printf("  Network: http://%s:%s\n", ip, cfg.Port)
 	}
 
-	// Start the server
-	log.Fatal(http.ListenAndServe(":"+cfg.Port, handler))
-}
+	// 5. Start Server
+	server := &http.Server{
+		Addr:         ":" + cfg.Port,
+		Handler:      handler,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Minute, // High timeout for long LLM generations
+	}
 
+	if err := server.ListenAndServe(); err != nil {
+		log.Fatalf("Server failed: %s", err)
+	}
+}
