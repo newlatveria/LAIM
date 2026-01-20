@@ -2,191 +2,169 @@
 <html>
 <head>
   <meta charset="utf-8"/>
-  <title>LAIM - Helpful Generate</title>
+  <title>LAIM</title>
   <style>
-    body { font-family: sans-serif; max-width: 900px; margin: auto; padding: 20px; line-height: 1.5; }
-    textarea { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; }
-    pre { 
-        background: #f5f5f5; 
-        padding: 1em; 
-        white-space: pre-wrap; 
-        word-wrap: break-word; 
-        border-radius: 4px;
-        border: 1px solid #ddd;
-        min-height: 50px;
-    }
-    select, button { padding: 8px; margin-top: 5px; }
-    .loading { color: #666; font-style: italic; }
+    body { font-family: 'Segoe UI', sans-serif; max-width: 900px; margin: auto; padding: 20px; background: #f4f4f9; }
+    .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); margin-bottom: 20px; }
+    .row { display: flex; gap: 20px; margin-bottom: 15px; }
+    .col { flex: 1; }
+    
+    label { font-weight: 600; font-size: 0.9em; display: block; margin-bottom: 5px; color: #555; }
+    select, input[type="text"], textarea { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
+    
+    /* Temperature Slider */
+    .range-wrap { display: flex; align-items: center; gap: 10px; }
+    input[type=range] { flex: 1; }
+    .val-badge { background: #e0e0e0; padding: 2px 6px; border-radius: 4px; font-size: 0.8em; font-family: monospace; }
+
+    pre { background: #2d2d2d; color: #f8f8f2; padding: 15px; border-radius: 4px; white-space: pre-wrap; min-height: 100px; }
+    
+    button { padding: 10px 20px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 4px; }
+    button:hover { background: #0056b3; }
+    button.secondary { background: #6c757d; }
+    button.danger { background: #dc3545; }
   </style>
 </head>
 <body>
 
 <h1>Local AI Manager</h1>
 
-<h2>Generate</h2>
+<div class="card">
+  <div class="row">
+    <div class="col">
+      <label>Model Selection</label>
+      <select id="models"></select>
+    </div>
+    <div class="col">
+      <label>Temperature (Creativity)</label>
+      <div class="range-wrap">
+        <input type="range" id="temp" min="0" max="1" step="0.1" value="0.7" oninput="updateVal('temp-val', this.value)">
+        <span id="temp-val" class="val-badge">0.7</span>
+        <ul style="font-size: 0.8em; color: #666;">0.0 - 0.3: Use for coding, math, or factual Q&A.</ul>
+        <ul style="font-size: 0.8em; color: #666;">0.7: Standard balance (default).</ul>
+        <ul style="font-size: 0.8em; color: #666;">0.9 - 1.0: Use for creative writing or brainstorming.</ul>
+      </div>
+    </div>
+  </div>
 
-<label>Task</label>
-<select id="task" onchange="recommend()">
-  <option value="writing">Writing / Summarization</option>
-  <option value="code">Code / Programming</option>
-  <option value="reasoning">Reasoning / Q&A</option>
-  <option value="fast">Fast / Lightweight</option>
-  <option value="advanced">Advanced (show all)</option>
-</select>
+  <label>System Persona</label>
+  <textarea id="system" rows="2" placeholder="e.g. You are a Python coding expert. Be concise."></textarea>
+</div>
 
-<p><em>Models are recommended based on task, but you can always choose any.</em></p>
+<div class="card">
+  <pre id="output">Ready...</pre>
+  <div class="row">
+    <textarea id="prompt" rows="3" placeholder="Type message..."></textarea>
+  </div>
+  <button onclick="generate()">Send Message</button>
+  <button class="danger" onclick="clearSession()" style="float: right;">Reset All</button>
+</div>
 
-<label>Model</label>
-<select id="models"></select>
-
-<br><br>
-<textarea id="prompt" rows="6" placeholder="Enter prompt..."></textarea>
-<br><br>
-<button id="gen-btn" onclick="generate()">Generate</button>
-
-<pre id="output"></pre>
-
-<hr>
-
-<h2>Upload Files / Folders</h2>
-<input type="file" id="files" multiple>
-<input type="file" id="folders" webkitdirectory multiple>
-<br><br>
-<button onclick="upload()">Upload</button>
-<br><br>
-<button onclick="clearContext()" style="color: red;">Clear All Files</button>
+<div class="card">
+  <label>Knowledge Base (RAG)</label>
+  <div class="row" style="align-items: flex-end;">
+    <div class="col">
+      <label>Select Files</label>
+      <input type="file" id="files" multiple>
+    </div>
+    <div class="col">
+      <label>Select Folder</label>
+      <input type="file" id="folders" webkitdirectory multiple>
+    </div>
+    <div class="col">
+      <button class="secondary" onclick="upload()">Upload Docs</button>
+    </div>
+  </div>
+  <p style="font-size: 0.8em; color: #666;">Supported: .txt, .md, .csv, .json (Images/PDFs require OCR setup)</p>
+</div>
 
 <script>
-let allModels = []
+let chatHistory = [];
+const updateVal = (id, v) => document.getElementById(id).textContent = v;
 
 async function loadModels() {
   try {
-    const res = await fetch("/api/models")
-    const data = await res.json()
-    allModels = data.models || []
-    recommend()
-  } catch (err) {
-    document.getElementById("output").textContent = "Error loading models. Is Ollama running?"
-  }
-}
-
-async function clearContext() {
-    if (!confirm("Delete all uploaded files?")) return;
-    const res = await fetch("/api/reindex"); // Calls ReindexAll handler
-    const msg = await res.text();
-    alert(msg);
-}
-
-function recommend() {
-  const task = document.getElementById("task").value
-  const sel = document.getElementById("models")
-  sel.innerHTML = ""
-
-  let filtered = allModels
-
-  if (task === "code") {
-    filtered = allModels.filter(m => m.name.toLowerCase().includes("coder") || m.name.toLowerCase().includes("code"))
-  } else if (task === "fast") {
-    filtered = allModels.filter(m =>
-      m.details?.parameter_size &&
-      parseFloat(m.details.parameter_size) <= 4 // Small models
-    )
-  } else if (task === "advanced") {
-    filtered = allModels
-  }
-
-  if (filtered.length === 0) filtered = allModels
-
-  for (const m of filtered) {
-    const o = document.createElement("option")
-    o.value = m.name
-    o.textContent = m.name
-    sel.appendChild(o)
-  }
+    const res = await fetch("/api/models");
+    const data = await res.json();
+    const sel = document.getElementById("models");
+    (data.models || []).forEach(m => {
+      const opt = document.createElement("option");
+      opt.value = m.name;
+      opt.textContent = m.name;
+      sel.appendChild(opt);
+    });
+  } catch(e) { console.error(e); }
 }
 
 async function generate() {
-  const model = document.getElementById("models").value
-  const prompt = document.getElementById("prompt").value
-  const output = document.getElementById("output")
-  const btn = document.getElementById("gen-btn")
-
+  const prompt = document.getElementById("prompt").value.trim();
+  const output = document.getElementById("output");
   if (!prompt) return;
 
-  // UI Setup
-  output.textContent = "" 
-  output.classList.add("loading")
-  btn.disabled = true
-  
+  chatHistory.push({role: "user", content: prompt});
+  document.getElementById("prompt").value = "";
+  output.textContent = "Thinking...";
+
   try {
     const res = await fetch("/api/generate", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      // IMPORTANT: Updated payload to match Ollama /api/chat expectations
-      body: JSON.stringify({ 
-        model: model, 
-        messages: [{ role: "user", content: prompt }] 
+      body: JSON.stringify({
+        model: document.getElementById("models").value,
+        system: document.getElementById("system").value,
+        messages: chatHistory,
+        options: {
+          temperature: parseFloat(document.getElementById("temp").value)
+        }
       })
-    })
+    });
 
-    if (!res.ok) throw new Error(await res.text())
-
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let fullText = ""
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let fullText = "";
+    output.textContent = "";
 
     while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-
-      const chunk = decoder.decode(value, { stream: true })
-      const lines = chunk.split('\n')
-
+      const {done, value} = await reader.read();
+      if (done) break;
+      const lines = decoder.decode(value).split("\n");
       for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          try {
-            const json = JSON.parse(line.substring(6))
-            
-            // Access the chat-style content key
-            if (json.message && json.message.content) {
-              output.classList.remove("loading")
-              fullText += json.message.content
-              output.textContent = fullText
-            }
-          } catch (e) {
-            // Ignore partial JSON lines
-          }
+        if (line.startsWith("data: ")) {
+            try {
+                const json = JSON.parse(line.substring(6));
+                if (json.message?.content) {
+                    fullText += json.message.content;
+                    output.textContent = fullText;
+                }
+            } catch (e) {}
         }
       }
     }
-  } catch (err) {
-    output.textContent = "Error: " + err.message
-  } finally {
-    btn.disabled = false
-    output.classList.remove("loading")
+    chatHistory.push({role: "assistant", content: fullText});
+  } catch (e) {
+    output.textContent = "Error: " + e.message;
   }
 }
 
 async function upload() {
-  const fileInput = document.getElementById("files")
-  const folderInput = document.getElementById("folders")
-  const data = new FormData()
-  
-  for (const f of fileInput.files) data.append("files", f)
-  for (const f of folderInput.files) data.append("files", f)
+  const data = new FormData();
+  // Append individual files
+  for (const f of document.getElementById("files").files) data.append("files", f);
+  // Append folder contents
+  for (const f of document.getElementById("folders").files) data.append("files", f);
 
-  if (data.getAll("files").length === 0) return alert("Select files first")
+  if (data.getAll("files").length === 0) return alert("Please select files first");
 
-  try {
-    await fetch("/api/upload", { method: "POST", body: data })
-    alert("Upload complete")
-  } catch (err) {
-    alert("Upload failed: " + err.message)
-  }
+  await fetch("/api/upload", { method: "POST", body: data });
+  alert("Upload complete! These files are now in the model's context.");
 }
 
-loadModels()
-</script>
+async function clearSession() {
+  await fetch("/api/reindex");
+  chatHistory = [];
+  document.getElementById("output").textContent = "Session cleared.";
+}
 
+loadModels();
+</script>
 </body>
 </html>

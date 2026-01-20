@@ -20,7 +20,7 @@ func New(cfg *config.Config) *Handler {
 	return &Handler{cfg: cfg}
 }
 
-// Index serves the frontend index.html
+// Index serves the frontend
 func (h *Handler) Index(w http.ResponseWriter, r *http.Request) {
 	content, err := os.ReadFile("index.html")
 	if err != nil {
@@ -31,7 +31,7 @@ func (h *Handler) Index(w http.ResponseWriter, r *http.Request) {
 	w.Write(content)
 }
 
-// Models fetches the list of available Ollama models
+// Models fetches available models from Ollama
 func (h *Handler) Models(w http.ResponseWriter, r *http.Request) {
 	resp, err := http.Get(h.cfg.OllamaBaseURL + "/api/tags")
 	if err != nil {
@@ -43,53 +43,70 @@ func (h *Handler) Models(w http.ResponseWriter, r *http.Request) {
 	io.Copy(w, resp.Body)
 }
 
-// Generate reads uploaded files as context and streams the AI response
+// Generate handles the chat, RAG context, system instructions, and temperature options
 func (h *Handler) Generate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST required", 405)
 		return
 	}
 
-	// 1. Decode Client Request
+	// Updated struct to accept "Options" from the new UI
 	var clientReq struct {
-		Model    string `json:"model"`
+		Model    string                 `json:"model"`
+		System   string                 `json:"system"`
+		Options  map[string]interface{} `json:"options"` // e.g. { "temperature": 0.7 }
 		Messages []struct {
 			Role    string `json:"role"`
 			Content string `json:"content"`
 		} `json:"messages"`
 	}
+
 	if err := json.NewDecoder(r.Body).Decode(&clientReq); err != nil {
 		http.Error(w, "Invalid JSON", 400)
 		return
 	}
 
-	// 2. Build Context from Uploaded Files
-	var contextContent string
+	// 1. Build File Context (RAG) from the uploads folder
+	var fileContext string
 	files, _ := os.ReadDir(h.cfg.UploadDir)
 	for _, file := range files {
 		if !file.IsDir() {
 			data, err := os.ReadFile(filepath.Join(h.cfg.UploadDir, file.Name()))
 			if err == nil {
-				contextContent += fmt.Sprintf("\n--- FILE: %s ---\n%s\n", file.Name(), string(data))
+				fileContext += fmt.Sprintf("\n--- FILE: %s ---\n%s\n", file.Name(), string(data))
 			}
 		}
 	}
 
-	// 3. Augment Prompt with Context
-	if contextContent != "" && len(clientReq.Messages) > 0 {
-		lastIdx := len(clientReq.Messages) - 1
-		originalPrompt := clientReq.Messages[lastIdx].Content
-		
-		// This "System Prompt" wrapper forces the AI to look at your data
-		clientReq.Messages[lastIdx].Content = fmt.Sprintf(
-			"You are a helpful assistant. Use the provided context to answer the user request.\n\n[CONTEXT]%s\n\n[USER REQUEST]: %s",
-			contextContent, originalPrompt,
-		)
+	// 2. Construct System Prompt (Instructions + Data)
+	masterSystem := clientReq.System
+	if masterSystem == "" {
+		masterSystem = "You are a helpful AI assistant."
+	}
+	if fileContext != "" {
+		masterSystem += "\n\nREFERENCE DATA:\n" + fileContext
 	}
 
-	// 4. Forward to Ollama
-	payload, _ := json.Marshal(clientReq)
-	req, _ := http.NewRequest("POST", h.cfg.OllamaBaseURL+"/api/chat", bytes.NewBuffer(payload))
+	// 3. Prepare Payload manually to ensure 'system' message is first
+	type msg struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}
+	finalMessages := []msg{{Role: "system", Content: masterSystem}}
+	for _, m := range clientReq.Messages {
+		finalMessages = append(finalMessages, msg{Role: m.Role, Content: m.Content})
+	}
+
+	// 4. Forward to Ollama with Options
+	ollamaReq := map[string]interface{}{
+		"model":    clientReq.Model,
+		"messages": finalMessages,
+		"stream":   true,
+		"options":  clientReq.Options, // This passes the temperature slider value
+	}
+	
+	payloadBytes, _ := json.Marshal(ollamaReq)
+	req, _ := http.NewRequest("POST", h.cfg.OllamaBaseURL+"/api/chat", bytes.NewBuffer(payloadBytes))
 	req.Header.Set("Content-Type", "application/json")
 
 	client := &http.Client{}
@@ -100,11 +117,10 @@ func (h *Handler) Generate(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
-	// 5. Stream SSE Response
+	// 5. Stream Response back to browser
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-
+	
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "Streaming not supported", 500)
@@ -113,58 +129,52 @@ func (h *Handler) Generate(w http.ResponseWriter, r *http.Request) {
 
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "" { continue }
-		fmt.Fprintf(w, "data: %s\n\n", line)
+		fmt.Fprintf(w, "data: %s\n\n", scanner.Text())
 		flusher.Flush()
 	}
 }
 
-// Upload saves files/folders to the configured uploads directory
+// Upload handles multiple files AND folder selection
 func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "POST required", 405)
-		return
-	}
-
-	// Max 50MB per upload batch
-	if err := r.ParseMultipartForm(50 << 20); err != nil {
+	// Parse up to 100MB
+	if err := r.ParseMultipartForm(100 << 20); err != nil {
 		http.Error(w, "Upload too large", 400)
 		return
 	}
-
+	
+	// Ensure directory exists
 	if _, err := os.Stat(h.cfg.UploadDir); os.IsNotExist(err) {
 		os.MkdirAll(h.cfg.UploadDir, 0755)
 	}
-
+	
 	files := r.MultipartForm.File["files"]
+	count := 0
+	
 	for _, fh := range files {
 		src, err := fh.Open()
 		if err != nil { continue }
 		defer src.Close()
 
+		// Save file to disk
 		dstPath := filepath.Join(h.cfg.UploadDir, filepath.Base(fh.Filename))
 		dst, err := os.Create(dstPath)
 		if err != nil { continue }
 		defer dst.Close()
 
 		io.Copy(dst, src)
+		count++
 	}
-
-	fmt.Fprint(w, "Upload successful")
+	
+	fmt.Fprintf(w, "Successfully uploaded %d files", count)
 }
 
-// ReindexAll acts as our "Clear Context" button for now
+// ReindexAll clears the uploads directory
 func (h *Handler) ReindexAll(w http.ResponseWriter, r *http.Request) {
-	err := os.RemoveAll(h.cfg.UploadDir)
-	if err != nil {
-		http.Error(w, "Failed to clear context", 500)
-		return
-	}
+	os.RemoveAll(h.cfg.UploadDir)
 	os.MkdirAll(h.cfg.UploadDir, 0755)
-	fmt.Fprint(w, "Context cleared successfully")
+	fmt.Fprint(w, "Context cleared")
 }
 
-// Stubs for remaining routes
-func (h *Handler) Rag(w http.ResponseWriter, r *http.Request)       { fmt.Fprint(w, "RAG is active on Generate") }
+// Stubs for remaining routes to prevent "undefined" errors
+func (h *Handler) Rag(w http.ResponseWriter, r *http.Request)       { fmt.Fprint(w, "RAG active") }
 func (h *Handler) Telemetry(w http.ResponseWriter, r *http.Request)  { fmt.Fprint(w, "{}") }
