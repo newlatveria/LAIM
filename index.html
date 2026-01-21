@@ -36,19 +36,44 @@
       <select id="models"></select>
     </div>
     <div class="col">
+      <label>System Persona</label>
+      <textarea id="system" rows="1" placeholder="e.g. You are a helpful assistant."></textarea>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="col">
       <label>Temperature (Creativity)</label>
       <div class="range-wrap">
-        <input type="range" id="temp" min="0" max="1" step="0.1" value="0.7" oninput="updateVal('temp-val', this.value)">
+        <input type="range" id="temp" min="0" max="1.5" step="0.1" value="0.7" oninput="updateVal('temp-val', this.value)">
         <span id="temp-val" class="val-badge">0.7</span>
-        <ul style="font-size: 0.8em; color: #666;">0.0 - 0.3: Use for coding, math, or factual Q&A.</ul>
-        <ul style="font-size: 0.8em; color: #666;">0.7: Standard balance (default).</ul>
-        <ul style="font-size: 0.8em; color: #666;">0.9 - 1.0: Use for creative writing or brainstorming.</ul>
+      </div>
+    </div>
+    <div class="col">
+      <label>Top-P (Diversity)</label>
+      <div class="range-wrap">
+        <input type="range" id="top_p" min="0" max="1" step="0.05" value="0.9" oninput="updateVal('p-val', this.value)">
+        <span id="p-val" class="val-badge">0.90</span>
       </div>
     </div>
   </div>
 
-  <label>System Persona</label>
-  <textarea id="system" rows="2" placeholder="e.g. You are a Python coding expert. Be concise."></textarea>
+  <div class="row">
+    <div class="col">
+      <label>Top-K (Vocabulary Buffer)</label>
+      <div class="range-wrap">
+        <input type="range" id="top_k" min="0" max="100" step="1" value="40" oninput="updateVal('k-val', this.value)">
+        <span id="k-val" class="val-badge">40</span>
+      </div>
+    </div>
+    <div class="col">
+      <label>Repeat Penalty</label>
+      <div class="range-wrap">
+        <input type="range" id="repeat_penalty" min="1" max="2" step="0.1" value="1.1" oninput="updateVal('rp-val', this.value)">
+        <span id="rp-val" class="val-badge">1.1</span>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div class="card">
@@ -112,8 +137,13 @@ async function generate() {
         model: document.getElementById("models").value,
         system: document.getElementById("system").value,
         messages: chatHistory,
+        // NEW: Expanded Options
         options: {
-          temperature: parseFloat(document.getElementById("temp").value)
+          temperature: parseFloat(document.getElementById("temp").value),
+          top_p: parseFloat(document.getElementById("top_p").value),
+          top_k: parseInt(document.getElementById("top_k").value),
+          repeat_penalty: parseFloat(document.getElementById("repeat_penalty").value),
+          num_predict: 1024 // You can also make this a slider (Max Length)
         }
       })
     });
