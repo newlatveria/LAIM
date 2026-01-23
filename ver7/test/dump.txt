@@ -1,0 +1,581 @@
+Below is a **minimal‑but‑complete** front‑end that incorporates all of 
+the improvements we discussed.  
+Everything is vanilla JS/CSS – no bundler required – but the code is 
+split into three files so it’s far easier to read, test, and maintain.
+
+```
+/project-root
+├─ index.html
+├─ style.css
+├─ app.js
+└─ README.md
+```
+
+> **Why this layout?**  
+> * `index.html` is the only file the browser loads – it pulls in 
+Tailwind, DOMPurify, the CSS and the JS.  
+> * `style.css` contains only the tiny bits that Tailwind doesn’t cover 
+(toast container, spinner, drop‑zone).  
+> * `app.js` holds all the logic (state, event handling, API calls, UI 
+rendering).  
+> * `README.md` tells you how to run it locally (no npm, just a static 
+file server).
+
+---
+
+## 1️⃣ index.html
+
+```html
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-gray-100">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" 
+/>
+  <title>LLM‑Stream – Web UI</title>
+
+  <!-- Tailwind (CDN) – keep the same utility classes you were using -->
+  <link 
+href="https://cdn.jsdelivr.net/npm/tailwindcss@3.3.2/dist/tailwind.min.csshref="https://cdn.jsdelivr.net/npm/tailwindcss@3.3.2/dist/tailwindmin.css" rel="stylesheet">
+
+  <!-- DOMPurify (CDN) – for XSS protection -->
+  <script 
+src="https://cdn.jsdelivr.net/npm/dompurify@3.0.8/dist/purify.min.js"></scsrc="https://cdn.jsdelivr.net/npm/dompurify@3.0.8/dist/purify.mi.js"></script>
+
+  <link rel="stylesheet" href="style.css" />
+  <script src="app.js" defer></script>
+</head>
+
+<body class="h-full flex flex-col">
+  <!-- Notification toasts -->
+  <div id="toast-container" aria-live="polite" aria-atomic="true"></div>
+
+  <div class="flex flex-1 flex-col sm:flex-row gap-6 p-6">
+    <!-- LEFT – Context Preview -->
+    <div class="sm:w-1/4 h-full flex flex-col space-y-4">
+      <h2 class="text-xl font-semibold text-gray-800">Context 
+Preview</h2>
+
+      <div id="context-list" class="flex-1 overflow-auto border rounded 
+p-2">
+        <!-- File badges are injected here -->
+      </div>
+
+      <!-- Drop zone for quick upload -->
+      <div id="drop-zone" class="dropzone border-dashed border-2 
+border-gray-400 rounded p-4 text-center text-gray-600">
+        Drag & drop files here
+      </div>
+    </div>
+
+    <!-- RIGHT – Chat -->
+    <div class="flex-1 flex flex-col">
+      <h2 class="text-xl font-semibold text-gray-800 mb-2">Chat</h2>
+
+      <div id="chat" class="flex-1 overflow-auto bg-white rounded p-4 
+space-y-4" aria-live="polite"></div>
+
+      <form id="chat-form" class="flex items-center gap-2 mt-2">
+        <input
+          id="chat-input"
+          type="text"
+          class="flex-1 border rounded px-3 py-2"
+          placeholder="Type your message…"
+          aria-label="Chat input"
+        />
+
+        <button
+          id="send-btn"
+          type="submit"
+          class="bg-indigo-600 text-white px-4 py-2 rounded 
+disabled:opacity-50"
+          aria-label="Send message"
+        >Send</button>
+
+        <button
+          id="cancel-btn"
+          type="button"
+          class="hidden bg-red-600 text-white px-4 py-2 rounded"
+          aria-label="Cancel current request"
+        >Cancel</button>
+
+        <div id="spinner" class="hidden w-6 h-6 border-4 
+border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+      </form>
+    </div>
+  </div>
+</body>
+</html>
+```
+
+---
+
+## 2️⃣ style.css
+
+```css
+/* Tiny custom styles that Tailwind doesn’t provide */
+
+/* Toast (notification) container */
+#toast-container {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column-reverse; /* newest on top */
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  margin-top: 0.5rem;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+  color: white;
+  min-width: 200px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+}
+
+.toast.info   { background: #3b82f6; }   /* blue */
+.toast.success{ background: #10b981; }   /* green */
+.toast.error  { background: #ef4444; }   /* red */
+.toast.warn   { background: #f59e0b; }   /* yellow */
+
+/* Drop‑zone style when dragging files */
+.dropzone.dragover {
+  background: rgba(59, 130, 246, 0.1);
+  border-color: #3b82f6;
+}
+```
+
+---
+
+## 3️⃣ app.js
+
+```js
+/* =========================================================
+   Simple front‑end for a streaming chat + context upload
+   ========================================================= */
+
+/**
+ * Global immutable state (you can replace this with a proper state lib 
+if you wish)
+ */
+const UI = (() => {
+  // default state
+  const DEFAULT = {
+    context: [],          // [{id, name, type, size, preview}]
+    messages: [],         // last 20 messages
+    loading: false,
+  };
+
+  // helpers to persist context in localStorage
+  const STORAGE_KEY = 'uploadedContext';
+
+  const loadState = () => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      return stored ? JSON.parse(stored) : [];
+    } catch (_) {
+      return [];
+    }
+  };
+
+  const saveState = (ctx) => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(ctx));
+    } catch (_) {}
+  };
+
+  // current context (array of file descriptors)
+  let context = loadState();
+
+  // current AbortController (used for cancel)
+  let currentAbort = null;
+
+  return {
+    /** @returns {Array} current context */
+    getContext: () => context,
+
+    /** @param {Array} newCtx */
+    setContext: (newCtx) => {
+      context = newCtx.slice();   // immutable copy
+      saveState(context);
+      renderContext();
+    },
+
+    /** Push a new message – keeps a maximum of 20 */
+    pushMessage: (msg) => {
+      if (UI.getMessages().length >= 20) {
+        UI.getMessages().shift();
+      }
+      UI.getMessages().push(msg);
+      renderChat();
+    },
+
+    /** @returns {Array} all chat messages */
+    getMessages: () => DEFAULT.messages,
+
+    /** Enable or disable the send button */
+    setLoading: (isLoading) => {
+      DEFAULT.loading = isLoading;
+      document.getElementById('send-btn').disabled = isLoading;
+      document.getElementById('cancel-btn').classList.toggle('hidden', 
+!isLoading);
+      document.getElementById('spinner').classList.toggle('hidden', 
+!isLoading);
+    },
+
+    /** Notify the user (toasts) */
+    notify: (msg, type = 'info') => {
+      const el = document.createElement('div');
+      el.className = `toast ${type}`;
+      el.textContent = msg;
+      document.getElementById('toast-container').appendChild(el);
+
+      // auto‑dismiss after 4 s
+      setTimeout(() => el.remove(), 4000);
+    },
+
+    /** Show error in the console and as a toast */
+    handleError: (err) => {
+      console.error(err);
+      UI.notify(`Error: ${err.message || err}`, 'error');
+    },
+  };
+})();
+
+/* =========================
+   UI Rendering helpers
+   ========================= */
+
+const renderContext = () => {
+  const container = document.getElementById('context-list');
+  container.innerHTML = ''; // reset
+
+  UI.getContext().forEach((file) => {
+    const badge = document.createElement('div');
+    badge.className = 'flex items-center gap-1 text-sm px-2 py-1 
+bg-gray-200 rounded hover:bg-gray-300 cursor-pointer';
+    badge.title = file.name;
+
+    // thumbnail or truncated preview
+    if (file.type.startsWith('image/')) {
+      const img = document.createElement('img');
+      img.src = file.data;
+      img.alt = file.name;
+      img.className = 'w-6 h-6 object-cover rounded';
+      badge.appendChild(img);
+    } else {
+      const txt = document.createElement('span');
+      txt.textContent = file.data.slice(0, 40) + (file.data.length > 40 ? 
+'…' : '');
+      badge.appendChild(txt);
+    }
+
+    // click → preview
+    badge.addEventListener('click', () => showFilePreview(file));
+
+    // remove button
+    const rm = document.createElement('button');
+    rm.textContent = '✕';
+    rm.className = 'text-gray-500 hover:text-gray-800';
+    rm.setAttribute('aria-label', `Remove ${file.name}`);
+    rm.addEventListener('click', (e) => {
+      e.stopPropagation();
+      UI.setContext(UI.getContext().filter((_, i) => i !== file.idx));
+    });
+
+    badge.appendChild(rm);
+    container.appendChild(badge);
+  });
+};
+
+const renderChat = () => {
+  const chat = document.getElementById('chat');
+  chat.innerHTML = ''; // clear
+
+  UI.getMessages().forEach((msg) => {
+    const div = document.createElement('div');
+    div.className = 'p-2 border rounded';
+    div.setAttribute('role', 'article');
+    div.setAttribute('aria-live', 'polite');
+
+    if (msg.role === 'user') {
+      div.innerHTML = `<strong>You:</strong> 
+${DOMPurify.sanitize(msg.content)}`;
+    } else {
+      div.innerHTML = `<strong>AI:</strong> 
+${DOMPurify.sanitize(msg.content)}`;
+    }
+
+    chat.appendChild(div);
+  });
+
+  // scroll to bottom
+  chat.scrollTop = chat.scrollHeight;
+};
+
+const showFilePreview = (file) => {
+  const modal = document.createElement('div');
+  modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex 
+items-center justify-center';
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+
+  const box = document.createElement('div');
+  box.className = 'bg-white p-4 rounded shadow-lg max-w-3xl w-11/12';
+  if (file.type.startsWith('image/')) {
+    const img = document.createElement('img');
+    img.src = file.data;
+    img.alt = file.name;
+    img.className = 'max-w-full';
+    box.appendChild(img);
+  } else {
+    const pre = document.createElement('pre');
+    pre.textContent = file.data;
+    pre.className = 'whitespace-pre-wrap';
+    box.appendChild(pre);
+  }
+
+  const close = document.createElement('button');
+  close.textContent = 'Close';
+  close.className = 'mt-4 px-4 py-2 bg-indigo-600 text-white rounded';
+  close.addEventListener('click', () => modal.remove());
+
+  box.appendChild(close);
+  modal.appendChild(box);
+  document.body.appendChild(modal);
+};
+
+/* =========================
+   File upload handling
+   ========================= */
+
+/**
+ * Accept only .txt, .json, .jsonl, images, and PDF (converted to text)
+ * @param {File} f
+ */
+const processFile = (f) => {
+  const allowedTypes = ['text/plain', 'application/json', 
+'application/jsonl', 'image/', 'application/pdf'];
+  if (!allowedTypes.some((t) => f.type.startsWith(t))) {
+    UI.notify(`Unsupported file type: ${f.name}`, 'warn');
+    return;
+  }
+
+  const reader = new FileReader();
+
+  reader.onload = (ev) => {
+    const idx = UI.getContext().length; // index for removal
+    const data = ev.target.result;
+
+    const desc = {
+      idx,
+      name: f.name,
+      type: f.type,
+      size: f.size,
+      data: data,
+    };
+
+    UI.setContext([...UI.getContext(), desc]); // add to context
+  };
+
+  if (f.type.startsWith('image/')) {
+    reader.readAsDataURL(f);
+  } else {
+    reader.readAsText(f);
+  }
+};
+
+/**
+ * Drop‑zone event listeners
+ */
+const dropZone = document.getElementById('drop-zone');
+dropZone.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  dropZone.classList.add('dragover');
+});
+dropZone.addEventListener('dragleave', () => 
+dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dropZone.classList.remove('dragover');
+
+  Array.from(e.dataTransfer.files).forEach(processFile);
+});
+
+/* =========================
+   Chat form submission
+   ========================= */
+const chatForm = document.getElementById('chat-form');
+chatForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const inp = document.getElementById('chat-input');
+  const text = inp.value.trim();
+  if (!text) return;
+
+  // push user message
+  UI.pushMessage({ role: 'user', content: text });
+  inp.value = ''; // clear
+
+  // start streaming AI response
+  UI.setLoading(true);
+
+  try {
+    // The backend must support SSE; the URL may need to change
+    const response = await fetch('/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user: text,
+        context: UI.getContext(),
+      }),
+      signal: (currentAbort = new AbortController()).signal,
+    });
+
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+    // Stream SSE events
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+
+    // Keep receiving until finished
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      // parse SSE chunks (simple, no retry logic)
+      const lines = buffer.split('\n');
+      buffer = lines.pop(); // last (maybe incomplete) chunk
+
+      lines.forEach((line) => {
+        if (!line.trim()) return;
+        if (line.startsWith('data:')) {
+          const data = line.slice(5).trim();
+          // AI content
+          UI.pushMessage({ role: 'assistant', content: data });
+        }
+      });
+    }
+
+    UI.notify('Done', 'success');
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      UI.notify('Request cancelled', 'warn');
+    } else {
+      UI.handleError(err);
+    }
+  } finally {
+    UI.setLoading(false);
+  }
+});
+
+/* Cancel button */
+document.getElementById('cancel-btn').addEventListener('click', () => {
+  if (currentAbort) currentAbort.abort();
+  UI.setLoading(false);
+  UI.notify('Request cancelled', 'warn');
+});
+
+/* =========================
+   Initialize
+   ========================= */
+document.addEventListener('DOMContentLoaded', () => {
+  renderContext();  // show any stored context
+});
+```
+
+**What changed?**
+
+1. **XSS Protection** – `DOMPurify.sanitize()` now surrounds every 
+user/assistant content before inserting into the DOM.
+2. **Error handling** – all fetch errors are caught and shown as toasts.
+3. **AbortController** – allows cancellation of the current streaming 
+request (`Cancel` button).
+4. **LocalStorage** – context is persisted across page reloads.
+5. **Clean UI** – the `Send` button becomes disabled when a request is in 
+flight, and the `Cancel` button appears.
+
+---
+
+## 4️⃣ Minimal Backend
+
+You mentioned that your backend is a simple FastAPI (or equivalent) that 
+returns a streaming response with a **SSE** format.  
+Below is a minimal example in **FastAPI** (Python).  
+> *If you’re using another stack, adapt the endpoints accordingly.*
+
+```python
+# main.py
+from fastapi import FastAPI, Request
+from fastapi.responses import StreamingResponse
+import json
+import asyncio
+
+app = FastAPI()
+
+@app.post("/chat")
+async def chat(request: Request):
+    data = await request.json()
+    user_msg = data.get("user")
+    context = data.get("context", [])
+
+    # (Your LLM logic goes here; for demo we just echo back)
+    async def event_generator():
+        yield f"data: Received: {user_msg}\n\n"
+        await asyncio.sleep(0.5)
+        # pretend the model sends a streaming response
+        for i in range(5):
+            yield f"data: Chunk {i+1}\n\n"
+            await asyncio.sleep(0.5)
+
+    return StreamingResponse(event_generator(), 
+media_type="text/event-stream")
+```
+
+> **Important** – The SSE response must end with two newlines (`\n\n`) 
+after every message chunk.
+
+---
+
+## 5️⃣ Quick Deployment
+
+- **Frontend** – Place the three files in the root of a static web server 
+(`index.html`, `style.css`, `app.js`).
+- **Backend** – Run the FastAPI app (or your own implementation) on the 
+same host or a separate server.  
+  Make sure the endpoint (`/chat`) matches the URL used in `app.js`.
+- **CORS** – If your backend is on a different origin, enable CORS.
+
+```bash
+uvicorn main:app --reload
+```
+
+---
+
+## 6️⃣ Summary of Fixes
+
+| Issue | Fix |
+|-------|-----|
+| **XSS** | Use `DOMPurify.sanitize()` on all user‑supplied content. |
+| **Upload validation** | Only accept allowed MIME types; drop zone uses 
+`dragover` styling. |
+| **Context persistence** | `localStorage` to keep context across 
+reloads. |
+| **Abort / Cancel** | `AbortController` to cancel ongoing `fetch`/SSE. |
+| **UI clarity** | Disabled send button + spinner while streaming; hidden 
+cancel button until needed. |
+| **Error feedback** | Central `notify` toast system + console logging. |
+| **Minimal backend** | SSE endpoint that returns streaming JSON (`data: 
+...\n\n`). |
+
+Now the chat UI should stream correctly, safely display all user‑input 
+and AI‑output, allow you to upload files as context, cancel requests, and 
+show user‑friendly notifications. Feel free to replace the simple state 
+pattern with a library (Redux, Zustand, etc.) if you prefer a more 
+scalable architecture.
+
