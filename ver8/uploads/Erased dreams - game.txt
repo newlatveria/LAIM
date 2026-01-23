@@ -1,0 +1,233 @@
+﻿Erased dreams : game
+Basic concept:
+Base of the game: complete the dream and you will get the option to either erase it or keep it. Some of the dreams will help you. Some won't.  And the rest are just for fun.
+Erase dream: permanently deletes the dream from the dreamer’s and and your own memory ( can affect story lines or relationships)
+Keep dream: keeps it in memory - can unlock info, clues, or emotional connections later.
+Each decision changes how the real world evolves
+
+
+Game loop:
+Explore real world: 
+talk to characters, gather info about local mysteries or missing memories.
+Access new “dream hosts” ( people whos dreams you can enter) 
+
+
+Enter dream:
+Explore surreal dream worlds in first person
+Solve small puzzles or uncover symbolic clues
+Interact with dream versions of people or new characters
+
+
+Decision phase (end of dream)
+A UI pops up “would you like to erase this dream or keep it?”
+The choice changes the story, environment, and relationships
+
+
+Progression:
+Collect “dream fragments”
+Unlock dream-world characters that can assist in both worlds
+Solve bigger neighbourhood mysteries by piecing dream clues together
+In the real world they could guide or warn you
+Mechanics ideas:
+Dream decay: some dreams fade automatically if ignored too long
+Dual world interaction: changing something in the dream alters reality ( like a fire burning in someones room appearing in the real world)
+NPC behaviour: dream choices might take NPCs act differently or even forget you exist
+
+
+Dream journal system
+This will be a physical item which will be a book that records every dream you’ve entered, your choice (keep/erase), and what you gained or lost from it.
+
+
+Journal categories
+Dream entries:
+Each time you finish a dream it auto logs a new page in the journal
+
+
+Displays:
+Dream title- ( e.g. empty playground)
+Dream summary- short description about the dream and what you experienced
+Choice- kept or erased
+Unlocks- characters, clues, or abilities gained
+date/order: dream x (x = title)
+
+
+Clues/ Mysteries tab
+List of characters you’ve met with different signs
+Dream world only 💤
+Real world only 🌍
+Both Worlds ⚡ 
+
+
+
+
+
+
+Stats/ Insights
+% of dreams kept vs erased
+“Memory integrity” metre ( shows the stability of your mind depending on choices)
+Dream energy or "lucidity level”
+
+
+Bonuses:
+Some pages could be locked, requiring specific dream outcomes to “remember”
+If you keep certain emotional dreams, new entries could appear on their own later - showing the subconscious replaying them
+
+
+Gameplay + Story additions
+Dream corruption system
+Not all dreams are stable Over time, some might glitch, change layout, or turn hostile if:
+You erase too many dreams (your mind becomes unstable).
+You keep too many (you’re overloaded with memories).
+You could have corruption effects — distorted visuals, inverted colors, creepy whispers — and new hidden endings tied to it. 👁‍🗨 
+The “Lucid Hub”
+A dream world safe zone between dreams — think of it like your subconscious base.
+Revisit erased dream fragments.
+Upgrade dream abilities (jump higher, slow time, see hidden clues).
+Decorate it with items or memories you’ve collected.
+Basically, your mental home that grows as you progress.
+
+
+Moral Alignment / Personality System
+Your decisions could shape the player’s personality:
+🩵 Empath — keeps dreams, connects with people, gains emotional insight.
+💀 Cleaner — erases dreams to protect others from pain, becomes cold and logical.
+
+💫 Lucid — balances both, sees hidden truths in both worlds.
+Each path changes dialogue, visuals, and which endings or abilities you get.
+Dream abilities
+A dream world safe zone between dreams (like subconscious base)
+Revisit erased dream fragments
+Upgrade dream abilities ( jump higher, slow time, see hidden clues)
+Decorate it with items or memories you’ve collected
+Mental home that grows as you progress
+Dream abilities
+Players can get powers that work only in dreams, but affect clues in the real world.
+Echo vision- lets you see what happened in a dream location days before. 🕯
+Emotion pulse- reveals hidden objects tied to emotions. 🌊
+Memory rewind- replays key dream moments. ⏳
+Dynamic NPC memory
+NPCs in the real world remember or forget based on your choices
+If you erased a dream, that NPC might forget you or act strange next time.
+If you keep it, they might reference what happened in their dreams when talking to you
+Symbolic dream puzzles
+A person hiding a truth might have locked doors everywhere
+Someone anxious might have looping corridors
+Solving the puzzle = resolving their emotion
+Multiple endings
+The dreamkeeper- you preserve memories, but the truth stays hidden
+The erase- you cleanse all pain, but lose identity and connection
+The lucid one- balanced ending, where you face the truth and accept both light and dark dreams.
+Ambient & audio layers
+Soft reverb and underwater muffle when in dreams
+Occasional reversed sounds ( like a memory glitching)
+Real world feels quieter the more dreams you erase - symbolising emptiness
+
+
+
+
+Small secrets/ easter eggs
+Hide personal stories inside random dreams that reference other dreams, my own subconscious as the player.
+Make players dig deeper and theorise what happened with me
+Visual style variation
+Different genres can emphasise that every dreamer’s mind is different
+World + atmosphere additions
+Neighbourhood evolution system
+Erasing dreams might make parts of the neighbourhood fade, buildings empty, or weather gloomier
+Keeping dreams brings back colour, lights, and life
+The world becomes a reflection of your mind and decisions
+day/nights & weather cycle
+Some dreams only unlock at night
+Rain could trigger dream memories in NPCs
+Lightning flashes reveal hidden clues or spirits for a split second
+Memory fractures
+Sometimes when exploring you might hear echoes or see flashes of previous dreams with bits of dialogue or visuals
+Interacting with them unlocks hidden dream fragments
+Could tie into achievements or secret endings
+Dream layer transitions
+Walls melting away
+Floors turning into clouds or lava
+Your reflection walking away from you
+“Inception” vibe will hit different and make every transition memorable
+Gameplay & progression additions
+Dream sync missions:
+Sometimes dreamers have connected dreams- one’s decision affects the other’s world. You’ll have to enter both dreams to fix the link or uncover the shared trauma
+Creates deeper storytelling and puzzle complexity
+Choice consequences system
+Each choice adds to hidden “mind variables” (compassion, curiosity)
+These affect how NPCs treat you, what dialogue you get and how the final act plays out
+Hidden “dream realm” ending
+If you erase too many dreams you might get trapped into a permanent Dream loop,  a bad ending where you can't tell what's real anymore
+If you keep too many you get overwhelmed by others’ memories
+Memory camera
+Players get a camera that captures clues in both worlds
+Photos might change over time depending on dream decisions 
+Can be pinned in the dream journal for reference 
+Ambient interactions
+Tvs that glitch and show dream clips 
+Mirrors that show past or future versions of yourself
+Music boxes that replay dream melodies you've heard before
+Can make players question reality constantly 
+Dialogue ( no voices)
+Scattered dream remnants people explaining parts of their dreams. Collecting them fills out lore and emotional backstory
+Music that reacts to memory state 
+The more dreams you erase, the soundtrack becomes emptier, more static- filled
+Keep dreams, and melodies become fuller and layered
+Dynamic sound for reactive effect
+Final ideas 
+The photo mode for players can capture dream aesthetics 
+Achievements tied to dream patterns (“keeper of memories”, “dream architrct”)
+Dream codex that explains symbolic meanings after beating the game once 
+Subtle horror later- rare dreams that glitch unnaturally, hunting something else is behind the dreamworld.
+Multiplayer mode
+Co-op dream investigators
+Player a and player b enter dreams together
+Player a sees a hidden door
+Player b sees floating text hints
+One Player hears whispers (subtitles)
+Memory desync mode
+Each player gets the erase/keep choice independently 
+Player a erases the dream they forget the info
+Player b might remember 
+Detective HQ shared journal
+Party has: shared notice board
+Dream files
+Suspect chart
+Clues wall w/ red strings
+Everyone contributes clues
+Everyone sees what's missing 
+Competitive memory duel
+Two players run the same dream separately 
+Goal - collect as many truth fragments as possible. False memories exist too
+End- reveal who remembered the dream better 
+Loser has to erase one clues permanently 
+One dreamer, one watcher
+Player a - inside the dream
+Player b- in real world watching monitors & dream pulse scanner
+Gives hints
+Calms dreamer if dream turns hostile
+Tags memory nodes to keep
+Swap roles each level 
+Haunting mode ( secret killer) Halloween event time only (..)
+A dream can “infect” one player
+Next dreams:
+The player sees hallucinations 
+Might sabotage clues
+Others must figure out who's corrupted
+Dream architect role
+One player builds a dream layer 
+Other players Explore it
+Architect can:
+Place memories
+Hide lies
+Drop scares
+Alter physics
+Shared sanity bar
+Dreams drain sanity if you erase too much 
+If one player loses sanity others start glitching too
+Encourages balanced decisions 
+Bonus ideas ( ask the customers)
+Sleep timer system 
+Night cycles in real world
+Phone messaging UI between layers 
+Hidden lore if 2 players keep same dream 
+Ghost “echo players” from past runs
