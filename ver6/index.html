@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebOlla Pro - Accessible AI</title>
+  <style>
+    :root {
+      --bg: #f4f4f9;
+      --sidebar: #121416;
+      --panel: #ffffff;
+      --text: #1a1a1a;
+      --primary: #0056b3; /* High contrast blue */
+      --bot-msg: #f0f0f0;
+      --user-msg: #0056b3;
+      --border: #d1d5db;
+    }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 16px;
+      margin: 0;
+      display: flex;
+      height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      overflow: hidden;
+    }
+
+    /* Sidebar - Icons only */
+    nav {
+      width: 70px;
+      background: var(--sidebar);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding-top: 20px;
+      flex-shrink: 0;
+    }
+
+    .nav-btn {
+      background: transparent;
+      border: none;
+      color: #fff;
+      font-size: 1.5rem;
+      margin-bottom: 25px;
+      cursor: pointer;
+      opacity: 0.6;
+      transition: opacity 0.2s;
+      padding: 10px;
+      border-radius: 8px;
+    }
+
+    .nav-btn:hover, .nav-btn.active { opacity: 1; background: rgba(255,255,255,0.1); }
+
+    /* Main Content Area */
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      background: #fff;
+      border-right: 1px solid var(--border);
+      min-width: 0; /* Prevents flex items from overflowing */
+    }
+
+    #chat-scroll {
+      flex: 1;
+      padding: 20px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      scroll-behavior: smooth;
+    }
+
+    .msg {
+      max-width: 85%;
+      padding: 14px 18px;
+      border-radius: 12px;
+      line-height: 1.6;
+      word-wrap: break-word;
+    }
+
+    .user { align-self: flex-end; background: var(--user-msg); color: white; border-bottom-right-radius: 2px; }
+    .bot { align-self: flex-start; background: var(--bot-msg); color: var(--text); border-bottom-left-radius: 2px; border: 1px solid #e0e0e0; }
+
+    /* Input Footer */
+    footer {
+      padding: 20px;
+      background: var(--panel);
+      border-top: 1px solid var(--border);
+    }
+
+    .input-group {
+      display: flex;
+      gap: 12px;
+      background: #fff;
+      border: 2px solid var(--border);
+      border-radius: 10px;
+      padding: 8px;
+    }
+
+    .input-group:focus-within { border-color: var(--primary); }
+
+    textarea {
+      flex: 1;
+      border: none;
+      outline: none;
+      font-size: 1rem;
+      resize: none;
+      padding: 8px;
+    }
+
+    /* Right Panel (The scrollable Context/Settings) */
+    aside {
+      width: 350px;
+      background: var(--panel);
+      display: flex;
+      flex-direction: column;
+      border-left: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .aside-header {
+      padding: 15px 20px;
+      border-bottom: 1px solid var(--border);
+      font-weight: bold;
+      background: #fafafa;
+    }
+
+    .aside-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+    }
+
+    .card {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 20px;
+    }
+
+    .card h4 { margin: 0 0 12px 0; font-size: 0.85rem; text-transform: uppercase; color: #666; }
+
+    .file-tag {
+      display: inline-flex;
+      align-items: center;
+      background: #edf2f7;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      margin: 3px;
+      border: 1px solid #cbd5e0;
+    }
+
+    /* Sliders */
+    .control-row { margin-bottom: 15px; }
+    .control-row label { display: flex; justify-content: space-between; font-size: 0.9rem; margin-bottom: 5px; font-weight: 500; }
+    input[type="range"] { width: 100%; cursor: pointer; }
+
+    /* Buttons */
+    .btn {
+      padding: 10px 16px;
+      border-radius: 6px;
+      border: none;
+      font-weight: 600;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+    .btn-primary { background: var(--primary); color: white; }
+    .btn-outline { background: white; border: 1px solid var(--border); color: var(--text); font-size: 0.8rem; }
+    .btn-danger { background: #dc3545; color: white; font-size: 0.8rem; }
+
+    /* Model Manager Overlays Chat */
+    #models-overlay {
+      display: none;
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: white;
+      z-index: 10;
+      padding: 40px;
+      overflow-y: auto;
+    }
+
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { text-align: left; padding: 12px; border-bottom: 1px solid #eee; }
+  </style>
+</head>
+<body>
+
+<nav aria-label="Main Navigation">
+  <button class="nav-btn active" id="btn-chat" title="Open Chat" onclick="showView('chat')">💬</button>
+  <button class="nav-btn" id="btn-models" title="Manage Models" onclick="showView('models')">📦</button>
+</nav>
+
+<main>
+  <section id="chat-scroll" aria-label="Chat History">
+    <div class="msg bot">Welcome. Upload files to the Knowledge Base on the right to enable context-aware chatting.</div>
+  </section>
+
+  <section id="models-overlay">
+    <div style="display:flex; justify-content: space-between; align-items: center;">
+        <h2>Model Marketplace</h2>
+        <button class="btn btn-outline" onclick="showView('chat')">✕ Close</button>
+    </div>
+    
+    <div class="card">
+        <h4>One-Click Install</h4>
+        <div id="market-grid" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap:15px;">
+            </div>
+    </div>
+
+    <div class="card">
+        <h4>Manual Installation</h4>
+        <div style="display:flex; gap:10px;">
+            <input type="text" id="pull-name" placeholder="hf.co/username/repo" style="flex:1; padding:10px; border:1px solid var(--border); border-radius:6px;">
+            <button class="btn btn-primary" onclick="pullModel(document.getElementById('pull-name').value)">Install</button>
+        </div>
+        <div id="pull-status" style="margin-top:10px; font-size:0.9rem; color: var(--primary);"></div>
+    </section>
+
+  <footer>
+    <div class="input-group">
+      <textarea id="prompt" rows="1" placeholder="Ask a question about your files..." onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault(); generate();}"></textarea>
+      <button class="btn btn-primary" onclick="generate()">Send</button>
+    </div>
+    <div style="display:flex; align-items:center; gap:10px; margin-top:10px;">
+        <label for="model-select" style="font-size:0.8rem; font-weight:600;">Active Model:</label>
+        <select id="model-select" style="padding:5px; border-radius:4px;"></select>
+    </div>
+  </footer>
+</main>
+
+<aside aria-label="Context and Settings">
+  <div class="aside-header">Context & Parameters</div>
+  
+  <div class="aside-content">
+    <section class="card">
+      <h4>Knowledge Base</h4>
+      <div id="file-list" style="max-height: 200px; overflow-y: auto; border: 1px inset #eee; padding: 5px; margin-bottom: 10px;">
+        <span style="color:#888; font-size:0.8rem;">No files loaded.</span>
+      </div>
+      <div style="display:flex; gap:5px; flex-wrap: wrap;">
+        <button class="btn btn-outline" onclick="document.getElementById('fIn').click()">+ Files</button>
+        <button class="btn btn-outline" onclick="document.getElementById('dIn').click()">+ Folder</button>
+        <button class="btn btn-danger" onclick="clearContext()">Clear All</button>
+      </div>
+      <input type="file" id="fIn" multiple hidden onchange="upload()">
+      <input type="file" id="dIn" webkitdirectory multiple hidden onchange="upload()">
+    </section>
+
+    <section class="card">
+      <h4>Parameters</h4>
+      <div class="control-row">
+        <label>Temperature <span id="tv">0.7</span></label>
+        <input type="range" id="temp" min="0" max="1.5" step="0.1" value="0.7" oninput="document.getElementById('tv').innerText=this.value">
+      </div>
+      <div class="control-row">
+        <label>Top-P <span id="pv">0.9</span></label>
+        <input type="range" id="top_p" min="0" max="1" step="0.05" value="0.9" oninput="document.getElementById('pv').innerText=this.value">
+      </div>
+      <div class="control-row">
+        <label>Repeat Penalty <span id="rv">1.1</span></label>
+        <input type="range" id="rp" min="1" max="2" step="0.1" value="1.1" oninput="document.getElementById('rv').innerText=this.value">
+      </div>
+      <label style="font-size:0.8rem; font-weight:600;">System Persona</label>
+      <textarea id="system" rows="4" placeholder="You are a helpful assistant..." style="width:100%; margin-top:5px; font-size:0.85rem; border:1px solid var(--border); border-radius:4px; padding:5px;"></textarea>
+    </section>
+
+    <div style="text-align: center; color: #888; font-size: 0.7rem;">
+        WebOlla v2.0 | Local AI Engine
+    </div>
+  </div>
+</aside>
+
+<script>
+let chatHistory = [];
+const library = [
+    { id: "llama3.2:1b", name: "Llama 3.2 (1B)" },
+    { id: "llama3.2:3b", name: "Llama 3.2 (3B)" },
+    { id: "mistral", name: "Mistral 7B" },
+    { id: "phi3", name: "Phi-3 Mini" }
+];
+
+function showView(view) {
+    document.getElementById('models-overlay').style.display = view === 'models' ? 'block' : 'none';
+    document.getElementById('btn-chat').classList.toggle('active', view === 'chat');
+    document.getElementById('btn-models').classList.toggle('active', view === 'models');
+    if(view === 'models') loadModels();
+}
+
+async function loadModels() {
+    const res = await fetch("/api/models");
+    const data = await res.json();
+    const installed = (data.models || []).map(m => m.name);
+    
+    // Update Chat Dropdown
+    const sel = document.getElementById("model-select");
+    sel.innerHTML = "";
+    (data.models || []).forEach(m => {
+        sel.innerHTML += `<option value="${m.name}">${m.name}</option>`;
+    });
+
+    // Update Marketplace Grid
+    const market = document.getElementById("market-grid");
+    market.innerHTML = "";
+    library.forEach(m => {
+        const isReady = installed.includes(m.id) || installed.includes(m.id+":latest");
+        market.innerHTML += `
+            <div style="border:1px solid #ddd; padding:10px; border-radius:8px; text-align:center; background:#f9f9f9;">
+                <div style="font-weight:bold; font-size:0.9rem; margin-bottom:10px;">${m.name}</div>
+                <button class="btn ${isReady ? 'btn-outline' : 'btn-primary'}" style="width:100%; font-size:0.75rem;" 
+                        onclick="${isReady ? '' : `pullModel('${m.id}')`}">
+                    ${isReady ? 'Installed' : 'Install'}
+                </button>
+            </div>`;
+    });
+}
+
+async function updateFileList() {
+    const res = await fetch("/api/files");
+    const files = await res.json();
+    const list = document.getElementById("file-list");
+    list.innerHTML = files?.length ? files.map(f => `<span class="file-tag">📄 ${f}</span>`).join('') : "No files loaded.";
+}
+
+async function generate() {
+    const pInput = document.getElementById("prompt");
+    const text = pInput.value.trim();
+    if(!text) return;
+
+    const win = document.getElementById("chat-scroll");
+    win.innerHTML += `<div class="msg user">${text}</div>`;
+    chatHistory.push({role: "user", content: text});
+    pInput.value = "";
+    win.scrollTop = win.scrollHeight;
+
+    const botMsg = document.createElement("div");
+    botMsg.className = "msg bot";
+    botMsg.innerText = "Processing...";
+    win.appendChild(botMsg);
+
+    const res = await fetch("/api/generate", {
+        method: "POST",
+        body: JSON.stringify({
+            model: document.getElementById("model-select").value,
+            system: document.getElementById("system").value,
+            messages: chatHistory,
+            options: {
+                temperature: parseFloat(document.getElementById("temp").value),
+                top_p: parseFloat(document.getElementById("top_p").value),
+                repeat_penalty: parseFloat(document.getElementById("rp").value)
+            }
+        })
+    });
+
+    const reader = res.body.getReader();
+    let fullText = "";
+    while(true) {
+        const {done, value} = await reader.read();
+        if(done) break;
+        new TextDecoder().decode(value).split("\n").forEach(l => {
+            if(l.startsWith("data: ")) {
+                try {
+                    const j = JSON.parse(l.substring(6));
+                    if(j.message) { fullText += j.message.content; botMsg.innerText = fullText; }
+                } catch(e){}
+            }
+        });
+        win.scrollTop = win.scrollHeight;
+    }
+    chatHistory.push({role: "assistant", content: fullText});
+}
+
+async function pullModel(name) {
+    const status = document.getElementById("pull-status");
+    status.innerText = "Starting download for " + name + "...";
+    const res = await fetch("/api/pull", { method: "POST", body: JSON.stringify({name}) });
+    const reader = res.body.getReader();
+    while(true) {
+        const {done, value} = await reader.read();
+        if(done) break;
+        new TextDecoder().decode(value).split("\n").forEach(l => {
+            if(l.startsWith("data: ")) {
+                const j = JSON.parse(l.substring(6));
+                status.innerText = j.status + (j.total ? ` (${(j.completed/j.total*100).toFixed(0)}%)` : "");
+            }
+        });
+    }
+    status.innerText = "Installation finished!";
+    loadModels();
+}
+
+async function upload() {
+    const fd = new FormData();
+    const files = [...document.getElementById("fIn").files, ...document.getElementById("dIn").files];
+    files.forEach(f => fd.append("files", f));
+    await fetch("/api/upload", { method: "POST", body: fd });
+    updateFileList();
+}
+
+async function clearContext() {
+    await fetch("/api/reindex");
+    updateFileList();
+}
+
+loadModels();
+updateFileList();
+</script>
+</body>
+</html>

@@ -49,7 +49,6 @@ func (h *Handler) ListFiles(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(names)
 }
 
-// CONSOLIDATED GENERATE: Handles Context for the Stop Button
 func (h *Handler) Generate(w http.ResponseWriter, r *http.Request) {
 	var clientReq struct {
 		Model    string                 `json:"model"`
@@ -60,10 +59,7 @@ func (h *Handler) Generate(w http.ResponseWriter, r *http.Request) {
 			Content string `json:"content"`
 		} `json:"messages"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&clientReq); err != nil {
-		http.Error(w, "Bad JSON", 400)
-		return
-	}
+	json.NewDecoder(r.Body).Decode(&clientReq)
 
 	var fileContext string
 	files, _ := os.ReadDir(h.cfg.UploadDir)
@@ -74,7 +70,7 @@ func (h *Handler) Generate(w http.ResponseWriter, r *http.Request) {
 
 	masterSystem := clientReq.System
 	if fileContext != "" {
-		masterSystem += "\n\nCONTEXT FROM FILES:\n" + fileContext
+		masterSystem += "\n\nKNOWLEDGE BASE CONTEXT:\n" + fileContext
 	}
 
 	type msg struct {
@@ -94,13 +90,7 @@ func (h *Handler) Generate(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	pBytes, _ := json.Marshal(ollamaReq)
-	
-	// Use NewRequestWithContext so when the user clicks 'Stop', the backend cancels the Ollama request
-	req, _ := http.NewRequestWithContext(r.Context(), "POST", h.cfg.OllamaBaseURL+"/api/chat", bytes.NewBuffer(pBytes))
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return 
-	}
+	resp, _ := http.Post(h.cfg.OllamaBaseURL+"/api/chat", "application/json", bytes.NewBuffer(pBytes))
 	defer resp.Body.Close()
 
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -113,78 +103,42 @@ func (h *Handler) Generate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
-    // Limit upload size to 100MB
-    if err := r.ParseMultipartForm(100 << 20); err != nil {
-        http.Error(w, "Files too large", 400)
-        return
-    }
-
-    os.MkdirAll(h.cfg.UploadDir, 0755)
-    files := r.MultipartForm.File["files"]
-
-    for _, fh := range files {
-        src, err := fh.Open()
-        if err != nil { continue }
-        defer src.Close()
-
-        // Create the local file
-        dst, err := os.Create(filepath.Join(h.cfg.UploadDir, filepath.Base(fh.Filename)))
-        if err != nil { continue }
-        defer dst.Close()
-
-        io.Copy(dst, src)
-    }
-    w.WriteHeader(http.StatusOK)
+	r.ParseMultipartForm(100 << 20)
+	os.MkdirAll(h.cfg.UploadDir, 0755)
+	for _, fh := range r.MultipartForm.File["files"] {
+		src, _ := fh.Open()
+		dst, _ := os.Create(filepath.Join(h.cfg.UploadDir, filepath.Base(fh.Filename)))
+		io.Copy(dst, src)
+		src.Close(); dst.Close()
+	}
 }
 
 func (h *Handler) PullModel(w http.ResponseWriter, r *http.Request) {
-    var req struct{ Name string `json:"name"` }
-    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-        http.Error(w, "Invalid model name", 400)
-        return
-    }
-
-    payload, _ := json.Marshal(map[string]string{"name": req.Name})
-    resp, err := http.Post(h.cfg.OllamaBaseURL+"/api/pull", "application/json", bytes.NewBuffer(payload))
-    if err != nil {
-        http.Error(w, "Ollama connection failed", 500)
-        return
-    }
-    defer resp.Body.Close()
-
-    // Stream the download progress (status and percentages) to the UI
-    w.Header().Set("Content-Type", "text/event-stream")
-    flusher, _ := w.(http.Flusher)
-    scanner := bufio.NewScanner(resp.Body)
-    for scanner.Scan() {
-        fmt.Fprintf(w, "data: %s\n\n", scanner.Text())
-        flusher.Flush()
-    }
-}
-
-func (h *Handler) Telemetry(w http.ResponseWriter, r *http.Request) {
-	resp, err := http.Get(h.cfg.OllamaBaseURL + "/api/ps")
-	if err != nil {
-		http.Error(w, "Ollama unreachable", 502)
-		return
-	}
+	var reqBody struct{ Name string `json:"name"` }
+	json.NewDecoder(r.Body).Decode(&reqBody)
+	payload, _ := json.Marshal(map[string]string{"name": reqBody.Name})
+	resp, _ := http.Post(h.cfg.OllamaBaseURL+"/api/pull", "application/json", bytes.NewBuffer(payload))
 	defer resp.Body.Close()
-	w.Header().Set("Content-Type", "application/json")
-	io.Copy(w, resp.Body)
+	w.Header().Set("Content-Type", "text/event-stream")
+	flusher, _ := w.(http.Flusher)
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		fmt.Fprintf(w, "data: %s\n\n", scanner.Text())
+		flusher.Flush()
+	}
 }
 
 func (h *Handler) DeleteModel(w http.ResponseWriter, r *http.Request) {
-	var req struct{ Name string `json:"name"` }
-	json.NewDecoder(r.Body).Decode(&req)
-	payload, _ := json.Marshal(map[string]string{"model": req.Name})
-	request, _ := http.NewRequest(http.MethodDelete, h.cfg.OllamaBaseURL+"/api/delete", bytes.NewBuffer(payload))
-	http.DefaultClient.Do(request)
+	var reqBody struct{ Name string `json:"name"` }
+	json.NewDecoder(r.Body).Decode(&reqBody)
+	payload, _ := json.Marshal(map[string]string{"model": reqBody.Name})
+	req, _ := http.NewRequest(http.MethodDelete, h.cfg.OllamaBaseURL+"/api/delete", bytes.NewBuffer(payload))
+	http.DefaultClient.Do(req)
 }
 
 func (h *Handler) ReindexAll(w http.ResponseWriter, r *http.Request) {
 	os.RemoveAll(h.cfg.UploadDir); os.MkdirAll(h.cfg.UploadDir, 0755)
 }
 
-
-
-func (h *Handler) Rag(w http.ResponseWriter, r *http.Request) { w.Write([]byte("RAG active")) }
+func (h *Handler) Rag(w http.ResponseWriter, r *http.Request) {}
+func (h *Handler) Telemetry(w http.ResponseWriter, r *http.Request) {}

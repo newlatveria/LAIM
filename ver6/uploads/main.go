@@ -102,7 +102,7 @@ func main() {
 	// API routes
 	mux.HandleFunc("/api/models", h.Models)
 	mux.HandleFunc("/api/generate", h.Generate)
-	//mux.HandleFunc("/api/rag", h.Rag)
+	mux.HandleFunc("/api/rag", h.Rag)
 	mux.HandleFunc("/api/upload", h.Upload)
 	mux.HandleFunc("/api/reindex", h.ReindexAll)
 	mux.HandleFunc("/api/telemetry", h.Telemetry)

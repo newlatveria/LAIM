@@ -1,259 +1,247 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>WebOlla Pro - Advanced Controls</title>
+  <meta charset="utf-8"/><title>WebOlla Pro - Final Build</title>
   <style>
-    :root {
-      --bg: #f4f6f8; --nav-bg: #1a1c1e; --aside-bg: #ffffff; --main-bg: #ffffff;
-      --text: #212529; --primary: #0d6efd; --border: #ced4da;
-      --bot-bubble: #f8f9fa; --user-bubble: #0d6efd;
-    }
-    body.dark {
-      --bg: #121212; --nav-bg: #000; --aside-bg: #1e1e1e; --main-bg: #181818;
-      --text: #e9ecef; --primary: #3d8bfd; --border: #343a40;
-      --bot-bubble: #2c2c2c; --user-bubble: #0d6efd;
-    }
-    body { font-family: 'Inter', system-ui, sans-serif; margin: 0; display: flex; height: 100vh; background: var(--bg); color: var(--text); overflow: hidden; transition: 0.2s; }
-
-    /* Navigation */
+    :root { --bg: #f8f9fa; --nav-bg: #1a1c1e; --aside-bg: #fff; --text: #212529; --primary: #0d6efd; --border: #dee2e6; --bot: #f1f3f5; --user: #0d6efd; }
+    body.dark { --bg: #121212; --nav-bg: #000; --aside-bg: #1e1e1e; --text: #e0e0e0; --primary: #3d8bfd; --border: #333; --bot: #2c2c2c; --user: #0d6efd; }
+    body { font-family: system-ui, sans-serif; margin: 0; display: flex; height: 100vh; background: var(--bg); color: var(--text); overflow: hidden; }
     nav { width: 70px; background: var(--nav-bg); display: flex; flex-direction: column; align-items: center; padding: 20px 0; flex-shrink: 0; }
-    .nav-btn { background: none; border: none; color: white; font-size: 1.4rem; margin-bottom: 25px; cursor: pointer; opacity: 0.6; padding: 12px; border-radius: 12px; }
-    .nav-btn.active { opacity: 1; background: rgba(255,255,255,0.1); color: var(--primary); }
-
+    .nav-btn { background: none; border: none; color: #fff; font-size: 1.5rem; margin-bottom: 25px; cursor: pointer; opacity: 0.6; padding: 10px; border-radius: 8px; }
+    .nav-btn.active { opacity: 1; background: rgba(255,255,255,0.1); }
     #layout { flex: 1; display: flex; flex-direction: column; min-width: 0; }
     header { height: 55px; background: var(--aside-bg); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; padding: 0 20px; }
-
     #content-area { flex: 1; display: flex; overflow: hidden; }
-
-    /* Main Chat */
-    main { flex: 1; display: flex; flex-direction: column; background: var(--main-bg); }
-    #chat-scroll { flex: 1; overflow-y: auto; padding: 25px; display: flex; flex-direction: column; gap: 18px; scroll-behavior: smooth; }
-    .msg { max-width: 80%; padding: 14px 18px; border-radius: 16px; line-height: 1.6; font-size: 1rem; }
-    .bot { align-self: flex-start; background: var(--bot-bubble); border: 1px solid var(--border); }
-    .user { align-self: flex-end; background: var(--user-bubble); color: white; }
-
-    /* Aside Settings (Scrollable) */
-    aside { width: 340px; background: var(--aside-bg); border-left: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; }
-    .aside-scroll { flex: 1; overflow-y: auto; padding: 20px; }
-
-    .card { background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 20px; }
-    h4 { margin: 0 0 12px 0; font-size: 0.75rem; text-transform: uppercase; color: #6c757d; letter-spacing: 0.5px; }
-
-    /* Form Controls */
-    .control-row { margin-bottom: 15px; }
-    .control-row label { display: flex; justify-content: space-between; font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; }
-    input[type="range"] { width: 100%; height: 6px; border-radius: 5px; cursor: help; }
-    input[type="number"], select, textarea { width: 100%; background: var(--aside-bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 8px; font-size: 0.9rem; box-sizing: border-box; }
-
-    .btn { padding: 10px 16px; border-radius: 8px; border: 1px solid var(--border); background: var(--primary); color: white; font-weight: 600; cursor: pointer; transition: 0.2s; }
-    .btn-outline { background: transparent; color: var(--text); }
-    .btn-danger { background: #dc3545; }
-
-    footer { padding: 20px; border-top: 1px solid var(--border); background: var(--aside-bg); }
-    .input-wrap { display: flex; gap: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 10px; }
-    #prompt { flex: 1; border: none; background: transparent; color: var(--text); resize: none; outline: none; font-size: 1rem; }
-
-    #manager-overlay { display: none; position: absolute; inset: 0; background: var(--main-bg); z-index: 100; padding: 40px; overflow-y: auto; }
+    main { flex: 1; display: flex; flex-direction: column; background: var(--bg); position: relative; }
+    #chat-scroll { flex: 1; overflow-y: auto; padding: 25px; display: flex; flex-direction: column; gap: 15px; }
+    .msg { max-width: 80%; padding: 12px 16px; border-radius: 12px; font-size: 0.95rem; }
+    .bot { align-self: flex-start; background: var(--bot); border: 1px solid var(--border); }
+    .user { align-self: flex-end; background: var(--user); color: white; }
+    aside { width: 330px; background: var(--aside-bg); border-left: 1px solid var(--border); display: flex; flex-direction: column; overflow-y: auto; padding: 20px; }
+    .card { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 15px; margin-bottom: 15px; }
+    .btn { padding: 8px 14px; border-radius: 6px; border: 1px solid var(--border); background: var(--primary); color: white; cursor: pointer; }
+    .btn-stop { background: #dc3545; display: none; }
+    #overlay { display: none; position: absolute; inset: 0; background: var(--aside-bg); z-index: 50; padding: 30px; overflow-y: auto; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { text-align: left; padding: 10px; border-bottom: 1px solid var(--border); }
   </style>
 </head>
 <body class="dark">
-
 <nav>
-  <button class="nav-btn active" id="n-chat" title="AI Conversation" onclick="showView('chat')">💬</button>
-  <button class="nav-btn" id="n-mods" title="Model Registry" onclick="showView('models')">📦</button>
+  <button class="nav-btn active" onclick="showView('chat')">💬</button>
+  <button class="nav-btn" onclick="showView('models')">📦</button>
 </nav>
-
 <div id="layout">
   <header>
-    <div title="Currently active local model">Active Engine: <strong id="cur-mod">None</strong></div>
-    <div style="display:flex; gap:10px;">
-      <select id="preset" onchange="applyPreset(this.value)" title="Choose a starting configuration for your model" style="width:120px; padding:4px;">
-        <option value="balanced">Balanced</option>
-        <option value="precise">Precise/Code</option>
-        <option value="creative">Creative/Story</option>
-      </select>
-      <button class="btn btn-outline" onclick="document.body.classList.toggle('dark')" title="Switch Theme">🌓</button>
-    </div>
+    <div id="hw-bar" style="color:#28a745; font-family:monospace; font-size:0.8rem;">Hardware: Idle</div>
+    <button class="btn" style="background:transparent; color:var(--text);" onclick="document.body.classList.toggle('dark')">🌓</button>
   </header>
-
   <div id="content-area">
     <main>
-      <section id="chat-scroll">
-        <div class="msg bot">Ready for input. Adjust model parameters in the sidebar for custom behavior.</div>
-      </section>
-
-      <section id="manager-overlay">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
-            <h2>Model Registry</h2>
-            <button class="btn btn-outline" onclick="showView('chat')">✕ Close</button>
+      <div id="chat-scroll"></div>
+      <div id="overlay">
+        <div style="display:flex; justify-content:space-between;"><h2>Model Manager</h2><button class="btn" onclick="showView('chat')">✕</button></div>
+        <div class="card">
+          <h4>Installed Models</h4>
+          <table id="model-table"><thead><tr><th>Name</th><th>Size</th><th>Action</th></tr></thead><tbody id="model-list-body"></tbody></table>
         </div>
-        <div class="card" id="market-grid" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap:15px;"></div>
-      </section>
-
-      <footer>
-        <div class="input-wrap">
-          <textarea id="prompt" rows="1" placeholder="Type a message..." onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault(); generate();}"></textarea>
-          <button class="btn" onclick="generate()" title="Send message to AI">Send</button>
+        <div class="card">
+          <h4>Marketplace</h4>
+          <div id="market-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:10px;"></div>
         </div>
-        <div style="margin-top:10px; display:flex; align-items:center; gap:15px;">
-            <label style="font-size:0.8rem; font-weight:bold;">Model:</label>
-            <select id="model-select" style="max-width:200px;"></select>
+      </div>
+      <footer style="padding:20px; border-top:1px solid var(--border); background:var(--aside-bg);">
+        <div style="display:flex; gap:10px;">
+          <textarea id="prompt" rows="1" style="flex:1; padding:10px; border-radius:8px; border:1px solid var(--border); background:var(--bg); color:var(--text);" placeholder="Ask anything..."></textarea>
+          <button id="send-btn" class="btn" onclick="generate()">Send</button>
+          <button id="stop-btn" class="btn btn-stop" onclick="stopGen()">Stop</button>
+        </div>
+        <div style="margin-top:10px;">
+          Model: <select id="model-select" style="padding:4px;"></select>
         </div>
       </footer>
     </main>
-
     <aside>
-      <div class="aside-scroll">
-        <div class="card">
-          <h4 title="Data available to the AI for this conversation">Knowledge Context</h4>
-          <div id="file-list" style="margin-bottom:12px; font-size:0.85rem;">No files uploaded.</div>
-          <div style="display:flex; gap:5px; flex-wrap:wrap;">
-            <button class="btn btn-outline" style="font-size:0.75rem;" onclick="document.getElementById('fIn').click()">+ Files</button>
-            <button class="btn btn-outline" style="font-size:0.75rem;" onclick="document.getElementById('dIn').click()">+ Folder</button>
-            <input type="file" id="fIn" multiple hidden onchange="upload()">
-            <input type="file" id="dIn" webkitdirectory multiple hidden onchange="upload()">
-          </div>
-        </div>
-
-        <div class="card">
-          <h4 title="Standard LLM tuning options">Primary Controls</h4>
-          <div class="control-row">
-            <label title="Predictability vs Creativity. High = Creative.">Temp <span id="v-temp">0.7</span></label>
-            <input type="range" id="temp" min="0" max="1.5" step="0.1" value="0.7" oninput="document.getElementById('v-temp').innerText=this.value">
-          </div>
-          <div class="control-row">
-            <label title="How many 'tokens' (memory) the AI has access to. Essential for large documents.">Context Window</label>
-            <input type="number" id="num_ctx" value="4096" step="1024" title="Number of tokens the model can remember.">
-          </div>
-        </div>
-
-        <div class="card">
-          <h4 title="Deep-level model behavior settings">Advanced Tuning</h4>
-          <div class="control-row">
-            <label title="Controls diversity via probability threshold.">Top-P <span id="v-p">0.9</span></label>
-            <input type="range" id="top_p" min="0" max="1" step="0.05" value="0.9" oninput="document.getElementById('v-p').innerText=this.value">
-          </div>
-          <div class="control-row">
-            <label title="Limits vocab to the Top K most likely words.">Top-K <span id="v-k">40</span></label>
-            <input type="range" id="top_k" min="0" max="100" step="1" value="40" oninput="document.getElementById('v-k').innerText=this.value">
-          </div>
-          <div class="control-row">
-            <label title="Prevents the AI from repeating itself.">Repeat Penalty <span id="v-rp">1.1</span></label>
-            <input type="range" id="rp" min="1" max="2" step="0.1" value="1.1" oninput="document.getElementById('v-rp').innerText=this.value">
-          </div>
-          <div class="control-row">
-            <label title="Ensures same response for same prompt. Set to -1 for random.">Seed</label>
-            <input type="number" id="seed" value="-1">
-          </div>
-        </div>
+      <div class="card"><h4>Knowledge Base</h4><div id="file-list">None.</div><button class="btn" onclick="document.getElementById('fIn').click()">+ Upload</button><input type="file" id="fIn" multiple hidden onchange="upload()"></div>
+      <div class="card"><h4>Tuning</h4>
+        Temp: <input type="range" id="temp" min="0" max="1.5" step="0.1" value="0.7"><br>
+        Ctx: <input type="number" id="ctx" value="4096" style="width:100%;">
       </div>
     </aside>
   </div>
 </div>
-
 <script>
 let chatHistory = [];
-const library = [{id:"llama3.2:1b",name:"Llama 3.2 1B"},{id:"llama3.2:3b",name:"Llama 3.2 3B"},{id:"mistral",name:"Mistral 7B"}];
+let abortController = null;
+const lib = [{id:"llama3.2:1b",name:"Llama 3.2 1B"},{id:"llama3.2:3b",name:"Llama 3.2 3B"},{id:"mistral",name:"Mistral 7B"}];
 
-function showView(v) {
-    document.getElementById('manager-overlay').style.display = v==='models'?'block':'none';
-    document.getElementById('n-chat').classList.toggle('active', v==='chat');
-    document.getElementById('n-mods').classList.toggle('active', v==='models');
-    if(v==='models') loadModels();
-}
-
-function applyPreset(p) {
-    const sets = {
-        balanced: { temp: 0.7, top_p: 0.9, top_k: 40, rp: 1.1 },
-        precise: { temp: 0.1, top_p: 0.1, top_k: 10, rp: 1.2 },
-        creative: { temp: 1.2, top_p: 0.95, top_k: 60, rp: 1.0 }
-    };
-    const s = sets[p];
-    for(let k in s) {
-        document.getElementById(k).value = s[k];
-        if(document.getElementById('v-'+k)) document.getElementById('v-'+k).innerText = s[k];
-    }
+function showView(v) { 
+    document.getElementById('overlay').style.display = v==='models'?'block':'none'; 
+    if(v==='models') loadModels(); 
 }
 
 async function loadModels() {
-    const res = await fetch("/api/models");
-    const data = await res.json();
-    const installed = (data.models || []).map(m => m.name);
-    
-    const sel = document.getElementById("model-select");
-    sel.innerHTML = "";
-    (data.models || []).forEach(m => { sel.innerHTML += `<option value="${m.name}">${m.name}</option>`; });
-    document.getElementById('cur-mod').innerText = sel.value || "None";
+  const res = await fetch("/api/models");
+  const data = await res.json();
+  const installed = (data.models || []).map(m => m.name);
+  
+  const sel = document.getElementById("model-select");
+  sel.innerHTML = "";
+  const tableBody = document.getElementById("model-list-body");
+  tableBody.innerHTML = "";
 
-    const grid = document.getElementById("market-grid");
-    grid.innerHTML = "";
-    library.forEach(m => {
-        const isReady = installed.includes(m.id) || installed.includes(m.id+":latest");
-        grid.innerHTML += `<div class="card" style="text-align:center;">
-            <strong>${m.name}</strong><br><br>
-            <button class="btn" style="width:100%;${isReady?'background:#6c757d':''}" onclick="${isReady?'':'pullModel(\''+m.id+'\')'}">${isReady?'Installed':'Install'}</button>
-        </div>`;
-    });
+  (data.models || []).forEach(m => {
+    sel.innerHTML += `<option value="${m.name}">${m.name}</option>`;
+    tableBody.innerHTML += `<tr><td>${m.name}</td><td>${(m.size/1e9).toFixed(1)}GB</td><td><button class="btn" style="background:#dc3545" onclick="deleteMod('${m.name}')">Delete</button></td></tr>`;
+  });
+
+  const grid = document.getElementById("market-grid");
+  grid.innerHTML = lib.map(m => {
+    const isReady = installed.includes(m.id) || installed.includes(m.id+":latest");
+    return `<div class="card"><strong>${m.name}</strong><br><button class="btn" style="width:100%; margin-top:10px; ${isReady?'background:#6c757d':''}" onclick="${isReady?'':'pull(\''+m.id+'\')'}">${isReady?'Ready':'Install'}</button></div>`;
+  }).join('');
 }
 
 async function generate() {
-    const p = document.getElementById("prompt");
-    const text = p.value.trim(); if(!text) return;
-    
-    const win = document.getElementById("chat-scroll");
-    win.innerHTML += `<div class="msg user">${text}</div>`;
-    chatHistory.push({role: "user", content: text});
-    p.value = ""; win.scrollTop = win.scrollHeight;
+  const pInput = document.getElementById("prompt");
+  const text = pInput.value.trim(); if(!text) return;
+  
+  abortController = new AbortController();
+  document.getElementById("stop-btn").style.display = "inline-block";
+  document.getElementById("send-btn").style.display = "none";
 
-    const botMsg = document.createElement("div");
-    botMsg.className = "msg bot"; botMsg.innerText = "...";
-    win.appendChild(botMsg);
+  const win = document.getElementById("chat-scroll");
+  win.innerHTML += `<div class="msg user">${text}</div>`;
+  chatHistory.push({role:"user", content:text});
+  pInput.value = ""; win.scrollTop = win.scrollHeight;
 
+  const botMsg = document.createElement("div"); botMsg.className="msg bot"; botMsg.innerText="...";
+  win.appendChild(botMsg);
+
+  try {
     const res = await fetch("/api/generate", {
-        method: "POST",
-        body: JSON.stringify({
-            model: document.getElementById("model-select").value,
-            messages: chatHistory,
-            options: {
-                temperature: parseFloat(document.getElementById("temp").value),
-                top_p: parseFloat(document.getElementById("top_p").value),
-                top_k: parseInt(document.getElementById("top_k").value),
-                repeat_penalty: parseFloat(document.getElementById("rp").value),
-                num_ctx: parseInt(document.getElementById("num_ctx").value),
-                seed: parseInt(document.getElementById("seed").value)
-            }
-        })
+      method:"POST", signal: abortController.signal,
+      body: JSON.stringify({
+        model: document.getElementById("model-select").value,
+        messages: chatHistory,
+        options: { temperature: parseFloat(document.getElementById("temp").value), num_ctx: parseInt(document.getElementById("ctx").value) }
+      })
     });
 
     const reader = res.body.getReader();
-    let full = "";
+    let fullText = "";
     while(true) {
-        const {done, value} = await reader.read();
-        if(done) break;
-        new TextDecoder().decode(value).split("\n").forEach(l => {
-            if(l.startsWith("data: ")) {
-                try {
-                    const j = JSON.parse(l.substring(6));
-                    if(j.message) { full += j.message.content; botMsg.innerText = full; }
-                } catch(e){}
+      const {done, value} = await reader.read();
+      if(done) break;
+      new TextDecoder().decode(value).split("\n").forEach(l => {
+        if(l.startsWith("data: ")) {
+          try {
+            const j = JSON.parse(l.substring(6));
+            if(j.message) {
+              // FIX: Clean up <unused> tokens
+              let clean = j.message.content.replace(/<unused\d+>/g, '');
+              fullText += clean; botMsg.innerText = fullText;
             }
-        });
-        win.scrollTop = win.scrollHeight;
+          } catch(e){}
+        }
+      });
+      win.scrollTop = win.scrollHeight;
     }
-    chatHistory.push({role: "assistant", content: full});
+    chatHistory.push({role:"assistant", content:fullText});
+  } catch(e) { if(e.name === 'AbortError') botMsg.innerText += " [Stopped]"; }
+  
+  document.getElementById("stop-btn").style.display = "none";
+  document.getElementById("send-btn").style.display = "inline-block";
+}
+
+function stopGen() { if(abortController) abortController.abort(); }
+
+async function deleteMod(name) {
+  if(confirm("Delete " + name + "?")) {
+    await fetch("/api/delete", {method:"DELETE", body:JSON.stringify({name})});
+    loadModels();
+  }
+}
+
+async function pull(name) {
+  alert("Downloading " + name);
+  await fetch("/api/pull", {method:"POST", body:JSON.stringify({name})});
+  loadModels();
 }
 
 async function upload() {
-    const fd = new FormData();
-    const files = [...document.getElementById("fIn").files, ...document.getElementById("dIn").files];
-    files.forEach(f => fd.append("files", f));
-    await fetch("/api/upload", { method: "POST", body: fd });
-    const fl = await (await fetch("/api/files")).json();
-    document.getElementById("file-list").innerHTML = fl.map(f => `<span style="background:rgba(0,0,0,0.1); padding:2px 5px; border-radius:4px; margin:2px; display:inline-block">📄 ${f}</span>`).join('');
+  const fd = new FormData();
+  [...document.getElementById("fIn").files].forEach(f => fd.append("files", f));
+  await fetch("/api/upload", {method:"POST", body:fd});
+  const fl = await (await fetch("/api/files")).json();
+  document.getElementById("file-list").innerText = fl.join(", ");
 }
 
+async function updateHW() {
+  try {
+    const res = await fetch("/api/telemetry");
+    const data = await res.json();
+    const bar = document.getElementById("hw-bar");
+    if(!data.models || data.models.length === 0) { bar.innerText = "Hardware: Idle"; return; }
+    const m = data.models[0];
+    bar.innerText = `Active: ${m.name} | VRAM: ${(m.size_vram/1e9).toFixed(1)}GB`;
+  } catch(e) {}
+}
+
+// Install a model with live progress
+async function pull(name) {
+    const statusDiv = document.getElementById("hw-bar");
+    statusDiv.style.color = "#ffc107"; // Warning yellow for downloading
+    statusDiv.innerText = `Preparing download for ${name}...`;
+
+    const res = await fetch("/api/pull", {
+        method: "POST",
+        body: JSON.stringify({ name })
+    });
+
+    const reader = res.body.getReader();
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        const lines = new TextDecoder().decode(value).split("\n");
+        lines.forEach(l => {
+            if (l.startsWith("data: ")) {
+                try {
+                    const progress = JSON.parse(l.substring(6));
+                    if (progress.status) {
+                        statusDiv.innerText = `${name}: ${progress.status} ${progress.completed ? '(' + Math.round((progress.completed/progress.total)*100) + '%)' : ''}`;
+                    }
+                } catch (e) {}
+            }
+        });
+    }
+    
+    statusDiv.style.color = "#28a745"; // Success green
+    statusDiv.innerText = `Installed ${name} successfully!`;
+    loadModels(); // Refresh the list
+}
+
+// Bulk File Upload
+async function upload() {
+    const fileInput = document.getElementById("fIn");
+    const fd = new FormData();
+    const files = [...fileInput.files];
+    
+    if (files.length === 0) return;
+    files.forEach(f => fd.append("files", f));
+
+    const listDiv = document.getElementById("file-list");
+    listDiv.innerText = "Uploading...";
+
+    await fetch("/api/upload", { method: "POST", body: fd });
+    
+    // Refresh the list from the server
+    const fl = await (await fetch("/api/files")).json();
+    listDiv.innerHTML = fl.map(f => `<div>📄 ${f}</div>`).join('');
+}
+
+setInterval(updateHW, 3000);
 loadModels();
 </script>
 </body>

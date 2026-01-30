@@ -9,7 +9,21 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 	"webolla/internal/config"
+)
+
+// JOB MANAGER: Tracks background downloads
+type DownloadJob struct {
+	Name     string  `json:"name"`
+	Status   string  `json:"status"`
+	Progress float64 `json:"progress"` // 0-100
+	Error    string  `json:"error,omitempty"`
+}
+
+var (
+	jobMutex sync.RWMutex
+	jobs     = make(map[string]*DownloadJob)
 )
 
 type Handler struct {
@@ -20,10 +34,23 @@ func New(cfg *config.Config) *Handler {
 	return &Handler{cfg: cfg}
 }
 
+// --- BASIC UI & TELEMETRY ---
+
 func (h *Handler) Index(w http.ResponseWriter, r *http.Request) {
 	content, _ := os.ReadFile("index.html")
 	w.Header().Set("Content-Type", "text/html")
 	w.Write(content)
+}
+
+func (h *Handler) Telemetry(w http.ResponseWriter, r *http.Request) {
+	resp, err := http.Get(h.cfg.OllamaBaseURL + "/api/ps")
+	if err != nil {
+		http.Error(w, "Ollama unreachable", 502)
+		return
+	}
+	defer resp.Body.Close()
+	w.Header().Set("Content-Type", "application/json")
+	io.Copy(w, resp.Body)
 }
 
 func (h *Handler) Models(w http.ResponseWriter, r *http.Request) {
@@ -37,17 +64,7 @@ func (h *Handler) Models(w http.ResponseWriter, r *http.Request) {
 	io.Copy(w, resp.Body)
 }
 
-func (h *Handler) ListFiles(w http.ResponseWriter, r *http.Request) {
-	files, _ := os.ReadDir(h.cfg.UploadDir)
-	var names []string
-	for _, f := range files {
-		if !f.IsDir() {
-			names = append(names, f.Name())
-		}
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(names)
-}
+// --- CHAT & GENERATION (Context Aware) ---
 
 func (h *Handler) Generate(w http.ResponseWriter, r *http.Request) {
 	var clientReq struct {
@@ -59,8 +76,12 @@ func (h *Handler) Generate(w http.ResponseWriter, r *http.Request) {
 			Content string `json:"content"`
 		} `json:"messages"`
 	}
-	json.NewDecoder(r.Body).Decode(&clientReq)
+	if err := json.NewDecoder(r.Body).Decode(&clientReq); err != nil {
+		http.Error(w, "Bad JSON", 400)
+		return
+	}
 
+	// 1. Inject RAG Context from Files
 	var fileContext string
 	files, _ := os.ReadDir(h.cfg.UploadDir)
 	for _, file := range files {
@@ -70,9 +91,10 @@ func (h *Handler) Generate(w http.ResponseWriter, r *http.Request) {
 
 	masterSystem := clientReq.System
 	if fileContext != "" {
-		masterSystem += "\n\nACT AS A KNOWLEDGE BASE ASSISTANT USING THESE FILES:\n" + fileContext
+		masterSystem += "\n\nCONTEXT FROM FILES:\n" + fileContext
 	}
 
+	// 2. Build Payload
 	type msg struct {
 		Role    string `json:"role"`
 		Content string `json:"content"`
@@ -90,9 +112,16 @@ func (h *Handler) Generate(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	pBytes, _ := json.Marshal(ollamaReq)
-	resp, _ := http.Post(h.cfg.OllamaBaseURL+"/api/chat", "application/json", bytes.NewBuffer(pBytes))
+	
+	// 3. Request with Context (Stop Button Support)
+	req, _ := http.NewRequestWithContext(r.Context(), "POST", h.cfg.OllamaBaseURL+"/api/chat", bytes.NewBuffer(pBytes))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return // Client cancelled or error
+	}
 	defer resp.Body.Close()
 
+	// 4. Stream Response
 	w.Header().Set("Content-Type", "text/event-stream")
 	flusher, _ := w.(http.Flusher)
 	scanner := bufio.NewScanner(resp.Body)
@@ -102,8 +131,10 @@ func (h *Handler) Generate(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// --- FILE MANAGEMENT ---
+
 func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
-	r.ParseMultipartForm(100 << 20)
+	r.ParseMultipartForm(100 << 20) // 100MB limit
 	os.MkdirAll(h.cfg.UploadDir, 0755)
 	for _, fh := range r.MultipartForm.File["files"] {
 		src, _ := fh.Open()
@@ -113,32 +144,97 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h *Handler) PullModel(w http.ResponseWriter, r *http.Request) {
-	var reqBody struct{ Name string `json:"name"` }
-	json.NewDecoder(r.Body).Decode(&reqBody)
-	payload, _ := json.Marshal(map[string]string{"name": reqBody.Name})
-	resp, _ := http.Post(h.cfg.OllamaBaseURL+"/api/pull", "application/json", bytes.NewBuffer(payload))
-	defer resp.Body.Close()
-	w.Header().Set("Content-Type", "text/event-stream")
-	flusher, _ := w.(http.Flusher)
-	scanner := bufio.NewScanner(resp.Body)
-	for scanner.Scan() {
-		fmt.Fprintf(w, "data: %s\n\n", scanner.Text())
-		flusher.Flush()
+func (h *Handler) ListFiles(w http.ResponseWriter, r *http.Request) {
+	files, _ := os.ReadDir(h.cfg.UploadDir)
+	var names []string
+	for _, f := range files {
+		if !f.IsDir() { names = append(names, f.Name()) }
 	}
-}
-
-func (h *Handler) DeleteModel(w http.ResponseWriter, r *http.Request) {
-	var reqBody struct{ Name string `json:"name"` }
-	json.NewDecoder(r.Body).Decode(&reqBody)
-	payload, _ := json.Marshal(map[string]string{"model": reqBody.Name})
-	req, _ := http.NewRequest(http.MethodDelete, h.cfg.OllamaBaseURL+"/api/delete", bytes.NewBuffer(payload))
-	http.DefaultClient.Do(req)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(names)
 }
 
 func (h *Handler) ReindexAll(w http.ResponseWriter, r *http.Request) {
-	os.RemoveAll(h.cfg.UploadDir); os.MkdirAll(h.cfg.UploadDir, 0755)
+	os.RemoveAll(h.cfg.UploadDir)
+	os.MkdirAll(h.cfg.UploadDir, 0755)
+	w.Write([]byte("Files cleared"))
 }
 
-func (h *Handler) Rag(w http.ResponseWriter, r *http.Request) {}
-func (h *Handler) Telemetry(w http.ResponseWriter, r *http.Request) {}
+// --- MODEL MANAGEMENT (Queue & Editor) ---
+
+func (h *Handler) GetJobs(w http.ResponseWriter, r *http.Request) {
+	jobMutex.RLock()
+	defer jobMutex.RUnlock()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(jobs)
+}
+
+func (h *Handler) PullModel(w http.ResponseWriter, r *http.Request) {
+	var req struct { Names []string `json:"names"` }
+	json.NewDecoder(r.Body).Decode(&req)
+
+	go func() {
+		for _, name := range req.Names {
+			if name == "" { continue }
+			
+			jobMutex.Lock()
+			jobs[name] = &DownloadJob{Name: name, Status: "Starting...", Progress: 0}
+			jobMutex.Unlock()
+
+			payload, _ := json.Marshal(map[string]string{"name": name})
+			resp, err := http.Post(h.cfg.OllamaBaseURL+"/api/pull", "application/json", bytes.NewBuffer(payload))
+			
+			if err != nil {
+				jobMutex.Lock()
+				jobs[name].Status = "Failed"
+				jobs[name].Error = "Connection error"
+				jobMutex.Unlock()
+				continue
+			}
+			
+			scanner := bufio.NewScanner(resp.Body)
+			for scanner.Scan() {
+				var update struct {
+					Status    string `json:"status"`
+					Completed int64  `json:"completed"`
+					Total     int64  `json:"total"`
+				}
+				if json.Unmarshal(scanner.Bytes(), &update) == nil {
+					jobMutex.Lock()
+					j := jobs[name]
+					j.Status = update.Status
+					if update.Total > 0 {
+						j.Progress = (float64(update.Completed) / float64(update.Total)) * 100
+					}
+					if update.Status == "success" { j.Progress = 100; j.Status = "Installed" }
+					jobMutex.Unlock()
+				}
+			}
+			resp.Body.Close()
+		}
+	}()
+	w.WriteHeader(http.StatusAccepted)
+}
+
+func (h *Handler) DeleteModel(w http.ResponseWriter, r *http.Request) {
+	var req struct{ Name string `json:"name"` }
+	json.NewDecoder(r.Body).Decode(&req)
+	payload, _ := json.Marshal(map[string]string{"model": req.Name})
+	request, _ := http.NewRequest(http.MethodDelete, h.cfg.OllamaBaseURL+"/api/delete", bytes.NewBuffer(payload))
+	http.DefaultClient.Do(request)
+}
+
+func (h *Handler) GetModelfile(w http.ResponseWriter, r *http.Request) {
+	var req struct{ Name string `json:"name"` }
+	json.NewDecoder(r.Body).Decode(&req)
+	payload, _ := json.Marshal(map[string]string{"name": req.Name})
+	resp, _ := http.Post(h.cfg.OllamaBaseURL+"/api/show", "application/json", bytes.NewBuffer(payload))
+	defer resp.Body.Close()
+	io.Copy(w, resp.Body)
+}
+
+func (h *Handler) CreateModel(w http.ResponseWriter, r *http.Request) {
+	resp, _ := http.Post(h.cfg.OllamaBaseURL+"/api/create", "application/json", r.Body)
+	defer resp.Body.Close()
+	io.Copy(w, resp.Body)
+}
