@@ -171,27 +171,48 @@ func (h *Handler) GetJobs(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) PullModel(w http.ResponseWriter, r *http.Request) {
 	var req struct { Names []string `json:"names"` }
-	json.NewDecoder(r.Body).Decode(&req)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		fmt.Println("Error decoding pull request:", err)
+		return
+	}
 
 	go func() {
 		for _, name := range req.Names {
 			if name == "" { continue }
+			fmt.Printf("Attempting to download: %s...\n", name) // Terminal Debug
 			
 			jobMutex.Lock()
-			jobs[name] = &DownloadJob{Name: name, Status: "Starting...", Progress: 0}
+			jobs[name] = &DownloadJob{Name: name, Status: "Connecting...", Progress: 0}
 			jobMutex.Unlock()
 
-			payload, _ := json.Marshal(map[string]string{"name": name})
+			// Sending both "name" and "model" keys ensures compatibility
+			payload, _ := json.Marshal(map[string]string{
+				"name":  name,
+				"model": name,
+			})
+			
 			resp, err := http.Post(h.cfg.OllamaBaseURL+"/api/pull", "application/json", bytes.NewBuffer(payload))
 			
 			if err != nil {
+				fmt.Printf("Failed to reach Ollama at %s: %v\n", h.cfg.OllamaBaseURL, err)
 				jobMutex.Lock()
 				jobs[name].Status = "Failed"
-				jobs[name].Error = "Connection error"
+				jobs[name].Error = "Cannot reach Ollama server"
 				jobMutex.Unlock()
 				continue
 			}
 			
+			// If Ollama returns 404/500, catch it here
+			if resp.StatusCode != http.StatusOK {
+				fmt.Printf("Ollama returned error %d for model %s\n", resp.StatusCode, name)
+				jobMutex.Lock()
+				jobs[name].Status = "Error"
+				jobs[name].Error = fmt.Sprintf("Server returned %d", resp.StatusCode)
+				jobMutex.Unlock()
+				resp.Body.Close()
+				continue
+			}
+
 			scanner := bufio.NewScanner(resp.Body)
 			for scanner.Scan() {
 				var update struct {
@@ -206,7 +227,11 @@ func (h *Handler) PullModel(w http.ResponseWriter, r *http.Request) {
 					if update.Total > 0 {
 						j.Progress = (float64(update.Completed) / float64(update.Total)) * 100
 					}
-					if update.Status == "success" { j.Progress = 100; j.Status = "Installed" }
+					if update.Status == "success" { 
+						j.Progress = 100
+						j.Status = "Installed" 
+						fmt.Printf("Successfully installed %s\n", name)
+					}
 					jobMutex.Unlock()
 				}
 			}
